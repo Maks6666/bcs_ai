@@ -47,55 +47,7 @@ Then, using OpenCV algorithms, the program opens the selected file and passes ea
 
 
     
-Programm also contains my own analyzer ANN-model, made with Tensorflow and Keras, which will analyze detected objects and make a decision is there a real howitzer or decoy. Obviously, in some cases it will mark targets as undecided objects and ask operators for help, but in general, it may make frone operators job much more easy.
-
-This way you should upload analyzer model with pickle:
-
-```bash
-    import pickle
-    file_path = "path/to/pickle/file"
-
-    with open(file_path, 'rb') as file:
-        analyzer_model = pickle.load(file)
- ```
-
-
-
-## Installations
-
-Before running programm, don't forget to install all necessary packages:
-```bash
-   pip install opencv-python
-   pip install ultralytics
-   pip install tensorflow
-   pip install scikit-learn
-   pip install numpy
-   pip install pandas 
-   pip install seaborn 
- ```
-
-They are necessary for running all of three models.
-## Example
-
-
-This way programm returns detection of real targets:
-
-![](ex2.png)
---------------------------------
-This way programm returns detection of 
-undecided targets:
-
-![](ex3.png)
---------------------------------
-
-This way programm returns detection of 
-decoys:
-
-![](ex4.png)
-
-The possible functionality of project is to be combined with FPV-drones to implement CV technologies into military targets recognition. Of course it is also possible to make such programm recognize and classify different types of weapons: vehicles, MANPADS and etc. 
-
-Thanks for attantion, hope you will find it useful:)
+To be continued...
 
 ## Authors:
 - Kucher Maks (maxim.kucher2005@gmail.com)
