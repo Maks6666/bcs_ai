@@ -35,10 +35,6 @@ and will force him to produce a target according to the coordinates of the objec
 
 When launching the program, the user has the opportunity to choose a method for reading information: a camera to which the device has access or a video file, which must (!) be located in the same directory as the project, in a folder called “videos”. The user then manually enters the number of available weapons - the part that could later be automated using sensors and which feeds the model with data on the number of weapons.
 
-## Programm 
-The program consists of three neural network models. The first is a YOLOv8 model, trained on a custom dataset (with more than 2000 images) to find artillery units (regardless of whether it is a decoy or not) from any video. The second is the YOLOv8l model with default settings, which is focused on searching for cars, people and other transport equipment around a detected object.
-
-This way programm creates area around detected howitzers, where could be found such objects as humans (obviousle soldiers) and vehicles:
 
 Then, using OpenCV algorithms, the program opens the selected file and passes each frame through two YOLO models - the first of them, trained on custom data, is necessary for detecting military equipment. The second is a model with default settings, which is adapted for detecting people - enemy infantry.
 
