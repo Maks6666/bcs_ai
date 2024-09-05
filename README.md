@@ -17,12 +17,14 @@ Next, the defense sector commander enters in a special field the amount of ammun
 The camera is placed in such a way that the area where enemy activity is expected is visible - one of the program options offers integration of the camera with a Tello model drone for greater convenience, but a regular high-resolution camera will also work. The camera must be connected to a laptop computer, which will perform the main calculations.
 
 ![machine_gun.jpg](bcs_images/machine_gun.jpg)
+
 *Automatic combat module "Shablya" of the Armed Forces of Ukraine. This program could group, coordinate and systematize the central control of combat systems of this category.*
 
 The program involves a combination with autonomous combat modules (automatic machine guns, ATGM positions and FPV drones, etc., which will operate autonomously or with minimal human intervention). This means that using the camera and YOLO models, the program will calculate the number of objects of one type or another in the video, combine this with the number of available weapons, feed the obtained data into one of the custom analyzer models written in PyTorch, which will return a specific solution, which will have to activate one or another combat module, direct it to the desired object (at the moment, priority is given to the object with the lowest ID, that is, the one that was detected first, however it could be changed by integration of another logic) 
 and will force him to produce a target according to the coordinates of the object. The shot will automatically reduce the amount of ammunition that was used - for now, the amount is reduced automatically, two seconds after detection and targeting of the desired object, however in the future, this could be integrated directly with automatic combat modules - for now, the program is more the “brain” of such a small tactical battle control system, which is capable of making simple decisions based on visually obtained data.
 
 ![fire.jpg](bcs_images/fire.jpg)
+
 *This function implements the logic: after selecting a weapon of a suitable category, 1 will be subtracted from the number of the selected type of weapon every 2 seconds, simulating the waste of ammunition per shot. Unfortunately, I have not yet had time to study in detail the issue of integrating the “brain” with autonomous combat systems, but I assume that this should be implemented in this function.*
 
 
