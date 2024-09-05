@@ -46,6 +46,9 @@ Then, using OpenCV algorithms, the program opens the selected file and passes ea
 
 *The logic for encoding the number of available weapons and feeding data about them and the number of detected equipment into the model is displayed here.*
 
+## Project structure
+## Targeting and etc...
+
 
     
 To be continued...
