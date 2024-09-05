@@ -28,9 +28,11 @@ and will force him to produce a target according to the coordinates of the objec
 
 ## Programm
 ![amunition_amount.png](bcs_images/amunition_amount.png)
+
 *Here user may fit an amount of available weapons.*
 
 ![choose_file.png](bcs_images/choose_file.png)
+
 *Here user may choose a video file or camera it wants to use.*
 
 When launching the program, the user has the opportunity to choose a method for reading information: a camera to which the device has access or a video file, which must (!) be located in the same directory as the project, in a folder called “videos”. The user then manually enters the number of available weapons - the part that could later be automated using sensors and which feeds the model with data on the number of weapons.
@@ -39,6 +41,7 @@ When launching the program, the user has the opportunity to choose a method for 
 Then, using OpenCV algorithms, the program opens the selected file and passes each frame through two YOLO models - the first of them, trained on custom data, is necessary for detecting military equipment. The second is a model with default settings, which is adapted for detecting people - enemy infantry.
 
 ![decision_model.png](bcs_images/decision_model.png)
+
 *The logic for encoding the number of available weapons and feeding data about them and the number of detected equipment into the model is displayed here.*
 
 
