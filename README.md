@@ -46,6 +46,24 @@ Then, using OpenCV algorithms, the program opens the selected file and passes ea
 
 *The logic for encoding the number of available weapons and feeding data about them and the number of detected equipment into the model is displayed here.*
 
+During the program execution, the bounding boxes for the detected objects (in the diagram above, they are marked in blue and the activity zone of a particular type of military equipment, in the diagram above, they are marked in red) and their total number are displayed on the screen. The program also counts the number of objects of each type and, together with the number of weapons, transmits them to each of the five custom neural network models to decide which weapon should be used in a specific situation - that is, to which of the autonomous combat modules the attack signal should be transmitted. Each of the models returns a decision index, which is passed to the list and displayed as text on one of the visual screens, as shown in the title image - in the "decision" stanza. The visual interface also displays the number of objects of each class and provides a short reference on the current situation on the battlefield: which object is under attack by what weapon, what time it was discovered, etc. All this is implemented using the PyQT visual interface library.
+
+IMPORTANT: since my operating system does not allow handling multi-threaded processes with a visual interface, to execute the main loop - the "Main" function in the file of the same name, which implements drawing of bounding boxes, deployment of models, decision making, etc., I had to use QtTimer from the PyQT library: 
+
+```
+timer = QtCore.QTimer()
+timer.timeout.connect(main)
+timer.start(1)
+```
+
+Thus, first, after working with the initial menu, the code will call functions to create windows and every millisecond the "Main" function will be updated. After each such cycle, the windows with information will be updated. The pause is completely unnoticeable for the user, but it helps to prevent an error with threads.
+
+
+
+
+
+
+
 ## Project structure
 ## Targeting and etc...
 
