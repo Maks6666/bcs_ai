@@ -46,7 +46,16 @@ Then, using OpenCV algorithms, the program opens the selected file and passes ea
 
 *The logic for encoding the number of available weapons and feeding data about them and the number of detected equipment into the model is displayed here.*
 
-During the program execution, the bounding boxes for the detected objects (in the diagram above, they are marked in blue and the activity zone of a particular type of military equipment, in the diagram above, they are marked in red) and their total number are displayed on the screen. The program also counts the number of objects of each type and, together with the number of weapons, transmits them to each of the five custom neural network models to decide which weapon should be used in a specific situation - that is, to which of the autonomous combat modules the attack signal should be transmitted. Each of the models returns a decision index, which is passed to the list and displayed as text on one of the visual screens, as shown in the title image - in the "decision" stanza. The visual interface also displays the number of objects of each class and provides a short reference on the current situation on the battlefield: which object is under attack by what weapon, what time it was discovered, etc. All this is implemented using the PyQT visual interface library.
+![objects_encoder.jpg](bcs_images/objects_encoder.jpg)
+
+*The logic for encoding detected objects is indicated here.*
+
+![weapons_encoder.jpg](bcs_images/weapons_encoder.jpg)
+
+*Logic for encoding the number of available weapons.*
+
+
+During the program execution, the bounding boxes for the detected objects (in the diagram above, they are marked in blue and the activity zone of a particular type of military equipment, in the diagram above, they are marked in red) and their total number are displayed on the screen. The program also counts the number of objects of each type and, together with the number of weapons, encodes values of them and transmits them to each of the five custom neural network models to decide which weapon should be used in a specific situation - that is, to which of the autonomous combat modules the attack signal should be transmitted. Each of the models returns a decision index, which is passed to the list and displayed as text on one of the visual screens, as shown in the title image - in the "decision" stanza. The visual interface also displays the number of objects of each class and provides a short reference on the current situation on the battlefield: which object is under attack by what weapon, what time it was discovered, etc. All this is implemented using the PyQT visual interface library.
 
 IMPORTANT: since my operating system does not allow handling multi-threaded processes with a visual interface, to execute the main loop - the "Main" function in the file of the same name, which implements drawing of bounding boxes, deployment of models, decision making, etc., I had to use QtTimer from the PyQT library: 
 
@@ -58,16 +67,35 @@ timer.start(1)
 
 Thus, first, after working with the initial menu, the code will call functions to create windows and every millisecond the "Main" function will be updated. After each such cycle, the windows with information will be updated. The pause is completely unnoticeable for the user, but it helps to prevent an error with threads.
 
-
-
-
-
-
-
 ## Project structure
+
+
+The main project consists of the following number of files:
+
+· "Main" file - file with the main script for activating YOLO models and deploying analyzer models. It implements the call of the main functions.
+
+· "Functions" file - this file implements the main part of the project's functions, which are later imported into "Main": encoding, drawing bounding boxes and creating data frames for each group of detected objects, which is used in the indexing and targeting system (see below).
+
+· "Main menu" - here the interface of the initial menu is implemented, where the user can select a video file or connect to an available camera and enter the number of available weapons. These functions are also transferred to the "main".
+
+· "Interface" file - the main number of scripts for creating and configuring PyQT visual interface are implemented here - primarily information screens, where data on detected objects and decisions made are displayed.
+
+· "Custom models building" - here I implement the construction and training of custom PyTorch models on custom data (which is already presented in encoded format) for analyzing information from the battlefield. After training the models, their weights are saved for further use.
+
+· "Models building" - here the obtained weights are attached to models with disabled gradients. Also implemented are functions that will accept data arrays - encoded number of objects and ammunition, pass them to the model and return the result. These functions are imported in the "main".
+
+· "Main v01" - the initial version of the project, where the interface is implemented using OpenCV.
+
+· "Main tello" - version of the project for combination with Tello drones.
+
+. 'videos' - folder with videos that the user can select at the beginning of the program. Remember that when you launch your project and upload your video files, you need a folder with EXACTLY the same name ('videos') in the directory of your project.
+
+. "Custom models" - weights of custom trained models.
+
+. "YOLO" - YOLO model, trained on custom data.
+
+
 ## Targeting and etc...
-
-
     
 To be continued...
 
