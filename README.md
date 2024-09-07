@@ -101,14 +101,22 @@ In addition, the program is also capable of indexing detected objects. To do thi
 
 The targeting logic is also built on the indexing system: the object with the lowest index, i.e. the one that was detected the earliest, becomes the priority target. This moment can also be optimized in the future using AI algorithms - for example, using ranking algorithms.
 
-![non_shells_targets.jpg](bsc_images/non_shells_targets.jpg)
+![non_shells_targets.jpg](bcs_images/non_shells_targets.jpg)
+
+*The target for striking the object with a precision weapon is marked in green.*
 
 It is also important to note that the program has two types of aiming: point aiming, that is, for point weapons and for aiming projectiles, weapons of a wider range. With point aiming, the program selects an object with a minimum index and draws a special green target in its center, activating the "fire" function to fire at the object.
 
+![non_shells_targets.jpg](bcs_images/shell_targets.jpg)
+
+*Aiming system for artillery shells.*
+
+In addition, the program also implements aiming in case the result of the neural networks is a decision on the need to use shells. In this case, from several hidden points marked on the screen, the one next to which the largest number of centers of detected objects lies is selected - a target is drawn in the coordinates of this point, where the "fire" function sends a shell. The search for the desired distance is also implemented using the Euclidean distance formula.
 
 
-    
+Thanks for your attantion:)
 
+The project may be supplemented in the future.
 
 ## Authors:
-- Kucher Maks (maxim.kucher2005@gmail.com)
+- Kucher Maks (maxim.kucher2005@gmail.com / Telegramm (for contacts): @aeternummm)
