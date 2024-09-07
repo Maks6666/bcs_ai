@@ -95,9 +95,20 @@ The main project consists of the following number of files:
 . "YOLO" - YOLO model, trained on custom data.
 
 
-## Targeting and etc...
+## Targeting and targets indexing
+
+In addition, the program is also capable of indexing detected objects. To do this, when activating the detection of objects of one of the five target groups mentioned above, a data frame is created for each of them (inside the "detection" function), where the coordinates of the center of the detected object, index, class and detection time are recorded. Using the Euclidean distance formula, the program is capable of preserving the object index when changing frames, as well as distinguishing the indices of other objects, preventing one index from overlapping another. It works in such a way that if the center of an object in one frame lies at a certain distance from the center of the same object (or at a distance less than it), then it refers to the same object and retains its index, and if the center of the object lies further away, then it is assigned a different index accordingly.
+
+The targeting logic is also built on the indexing system: the object with the lowest index, i.e. the one that was detected the earliest, becomes the priority target. This moment can also be optimized in the future using AI algorithms - for example, using ranking algorithms.
+
+![non_shells_targets.jpg](bsc_images/non_shells_targets.jpg)
+
+It is also important to note that the program has two types of aiming: point aiming, that is, for point weapons and for aiming projectiles, weapons of a wider range. With point aiming, the program selects an object with a minimum index and draws a special green target in its center, activating the "fire" function to fire at the object.
+
+
+
     
-To be continued...
+
 
 ## Authors:
 - Kucher Maks (maxim.kucher2005@gmail.com)
