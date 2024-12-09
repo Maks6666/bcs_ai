@@ -15,7 +15,7 @@ class FirstMilitaryTracker:
 
     def load_model(self):
         print(1)
-        model = YOLO("yolo/best (16).pt")
+        model = YOLO("yolo/vehicles_detector.pt")
         model.fuse()
         return model
 
@@ -95,10 +95,13 @@ class FirstMilitaryTracker:
         cv2.destroyAllWindows()
 
 
-file = "videos/Ukraine drone video shows attack on Russian tanks.mp4"
-tracker = FirstMilitaryTracker(file)
-tracker()
+# file = "videos/Ukraine drone video shows attack on Russian tanks.mp4"
+# tracker = FirstMilitaryTracker(file)
+# tracker()
 
+
+import os
+print(os.path.isfile("vehicles_detector.pt"))
 
 
 
