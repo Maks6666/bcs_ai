@@ -24,10 +24,11 @@ class FirstMilitaryTracker:
         return model.predict(frame, verbose=True, conf = 0.3)
 
     def get_results(self, results):
-
+        summa = 0
         detection_list = []
 
         for result in results[0]:
+            summa += 1
             bbox = result.boxes.xyxy.cpu().numpy()
             conf = result.boxes.conf.cpu().numpy()
             class_id = result.boxes.cls.cpu().numpy()
@@ -35,7 +36,7 @@ class FirstMilitaryTracker:
             merger_detection = [bbox[0][0], bbox[0][1], bbox[0][2], bbox[0][3], conf[0], class_id[0]]
             detection_list.append(merger_detection)
 
-        return np.array(detection_list)
+        return np.array(detection_list), summa
 
     def draw_boxes(self, frame, boxes, ids, class_id):
         for box, idx, cls in zip(boxes, ids, class_id):
@@ -66,7 +67,7 @@ class FirstMilitaryTracker:
 
             print("Predicting...")
             results = self.predict(self.model, frame)
-            final_results = self.get_results(results)
+            final_results, summa = self.get_results(results)
 
             if len(final_results) == 0:
                 final_results = np.empty((0, 5))
@@ -83,7 +84,8 @@ class FirstMilitaryTracker:
 
             end = time()
             fps = 1 / round(end - start, 1)
-            cv2.putText(frame, f'FPS: {int(fps)}', (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
+            cv2.putText(frame, f'FPS: {int(fps)}', (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+            cv2.putText(frame, f'Total objects: {summa}', (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
 
             cv2.imshow('1st version', frame)
 
@@ -95,9 +97,9 @@ class FirstMilitaryTracker:
         cv2.destroyAllWindows()
 
 
-# file = "videos/Ukraine drone video shows attack on Russian tanks.mp4"
-# tracker = FirstMilitaryTracker(file)
-# tracker()
+file = "videos/Ukraine drone video shows attack on Russian tanks.mp4"
+tracker = FirstMilitaryTracker(file)
+tracker()
 
 
 
