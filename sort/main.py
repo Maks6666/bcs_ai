@@ -100,8 +100,6 @@ class FirstMilitaryTracker:
 # tracker()
 
 
-import os
-print(os.path.isfile("vehicles_detector.pt"))
 
 
 
