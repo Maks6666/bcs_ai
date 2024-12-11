@@ -4,23 +4,29 @@ from sort import Sort
 from ultralytics import YOLO
 import numpy as np
 from time import time
+from connect import Session, get_data, get_status, Vehicles
+from tools import get_path
 
 class FirstMilitaryTracker:
-    def __init__(self, output):
+    def __init__(self, output, save_to_db = True):
         self.output = output
         self.model = self.load_model()
         self.names = self.model.names
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        self.save_to_db = save_to_db
+
+        if self.save_to_db:
+            self.session = Session()
+        else:
+            self.session = None
 
 
     def load_model(self):
-        print(1)
         model = YOLO("yolo/vehicles_detector.pt")
         model.fuse()
         return model
 
     def predict(self, model, frame):
-        print(2)
         return model.predict(frame, verbose=True, conf = 0.3)
 
     def get_results(self, results):
@@ -55,17 +61,19 @@ class FirstMilitaryTracker:
         cap = cv2.VideoCapture(self.output)
         assert cap.isOpened(), "Video capture failed."
 
-        sort = Sort(max_age=100, min_hits=8, iou_threshold=0.30)
+        sort = Sort(max_age=500, min_hits=4, iou_threshold=0.30)
 
         while True:
-            print("Reading frame...")
+            detected_obj = []
+
+
             start = time()
             ret, frame = cap.read()
             if not ret:
                 print("End of video or failed to read frame.")
                 break
 
-            print("Predicting...")
+
             results = self.predict(self.model, frame)
             final_results, summa = self.get_results(results)
 
@@ -80,6 +88,17 @@ class FirstMilitaryTracker:
             class_id = final_results[:, -1].astype(int)
 
 
+            for box, idx, cls in zip(bboxes, ids, class_id):
+                detected_obj.append(idx)
+
+                if self.save_to_db:
+                    obj = self.session.query(Vehicles).filter_by(status_at_moment="detected").all()
+                    get_data(self.session, idx, self.names[int(cls)], len(obj))
+
+            if self.session:
+                get_status(self.session, detected_obj)
+
+
             frame = self.draw_boxes(frame, bboxes, ids, class_id)
 
             end = time()
@@ -90,15 +109,23 @@ class FirstMilitaryTracker:
             cv2.imshow('1st version', frame)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
+                if self.session:
+                    self.session.close()
+                break
+
+            if cv2.waitKey(1) & 0xFF == ord("d"):
+                if self.session:
+                    self.session.query(Vehicles).delete()
+                    self.session.commit()
+                    self.session.close()
                 break
 
 
         cap.release()
         cv2.destroyAllWindows()
 
-
-file = "videos/Ukraine drone video shows attack on Russian tanks.mp4"
-tracker = FirstMilitaryTracker(file)
+path = get_path("videos")
+tracker = FirstMilitaryTracker(path, save_to_db=False)
 tracker()
 
 

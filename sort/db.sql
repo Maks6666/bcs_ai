@@ -6,7 +6,7 @@
 --     total_at_moment INTEGER NOT NULL,
 --     time_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 -- )
---
+--k
 
 SELECT * FROM vehicles
 
