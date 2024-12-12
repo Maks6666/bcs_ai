@@ -23,7 +23,7 @@ class FirstMilitaryTracker:
 
 
     def load_model(self):
-        model = YOLO("yolo/vehicles_yolov10.pt")
+        model = YOLO("yolo/detector.pt")
         model.fuse()
         return model
 
