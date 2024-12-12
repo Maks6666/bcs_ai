@@ -4,6 +4,7 @@ from sort import Sort
 from ultralytics import YOLO
 import numpy as np
 from time import time
+
 from connect import Session, get_data, get_status, Vehicles
 from tools import get_path
 
@@ -22,7 +23,7 @@ class FirstMilitaryTracker:
 
 
     def load_model(self):
-        model = YOLO("yolo/vehicles_detector.pt")
+        model = YOLO("yolo/vehicles_yolov10.pt")
         model.fuse()
         return model
 
@@ -61,7 +62,7 @@ class FirstMilitaryTracker:
         cap = cv2.VideoCapture(self.output)
         assert cap.isOpened(), "Video capture failed."
 
-        sort = Sort(max_age=500, min_hits=4, iou_threshold=0.30)
+        sort = Sort(max_age=80, min_hits=4, iou_threshold=0.30)
 
         while True:
             detected_obj = []

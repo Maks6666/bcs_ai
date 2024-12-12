@@ -1,1 +1,7 @@
-scikit-image, filterpy, sqlalchemy
+scikit-image
+filterpy
+torch
+sqlalchemy
+opencv-python
+ultralytics
+tensorflow

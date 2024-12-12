@@ -9,3 +9,7 @@ of SORT implementation may be more effective, while strict tracking, given by De
 Anyway, basic implementation of both methods will be available on my page... 
 
 2) To sort all given information, I consider using of PostgreSQL database. 
+
+P.S additional code parts for DeepSort were taken from: 
+- https://github.com/Koldim2001/SORT-DeepSORT-Tracker
+- https://github.com/nwojke/deep_sort/tree/master
