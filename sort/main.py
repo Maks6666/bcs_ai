@@ -4,17 +4,19 @@ from sort import Sort
 from ultralytics import YOLO
 import numpy as np
 from time import time
+import random
 
 from connect import Session, get_data, get_status, Vehicles
 from tools import get_path
 
 class FirstMilitaryTracker:
-    def __init__(self, output, save_to_db = True):
+    def __init__(self, output, save_to_db = True, record = True):
         self.output = output
         self.model = self.load_model()
         self.names = self.model.names
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         self.save_to_db = save_to_db
+        self.record = record
 
         if self.save_to_db:
             self.session = Session()
@@ -29,6 +31,7 @@ class FirstMilitaryTracker:
 
     def predict(self, model, frame):
         return model.predict(frame, verbose=True, conf = 0.3)
+
 
     def get_results(self, results):
         summa = 0
@@ -63,6 +66,15 @@ class FirstMilitaryTracker:
         assert cap.isOpened(), "Video capture failed."
 
         sort = Sort(max_age=80, min_hits=4, iou_threshold=0.30)
+
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        number = random.randint(1, 1000)
+        output_file = f"output/video_{number}.mp4"
+        out = cv2.VideoWriter(output_file, fourcc, fps, (frame_width, frame_height))
 
         while True:
             detected_obj = []
@@ -108,6 +120,9 @@ class FirstMilitaryTracker:
             cv2.putText(frame, f'Total objects: {summa}', (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
 
             cv2.imshow('1st version', frame)
+            if self.record:
+                out.write(frame)
+
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 if self.session:
@@ -123,6 +138,8 @@ class FirstMilitaryTracker:
 
 
         cap.release()
+        if self.record:
+            out.release()
         cv2.destroyAllWindows()
 
 path = get_path("videos")
