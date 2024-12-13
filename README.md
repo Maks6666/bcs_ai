@@ -13,3 +13,7 @@ Anyway, basic implementation of both methods will be available on my page...
 P.S additional code parts for DeepSort were taken from: 
 - https://github.com/Koldim2001/SORT-DeepSORT-Tracker
 - https://github.com/nwojke/deep_sort/tree/master
+
+3) Improved detection model. Instead of all classes detected, new model versions
+will be concentrated on detection of only three types of vehicles - tanks, APS's and IFV's. Trainung
+process will be also implemented on a new, bigger dataset. 
