@@ -4,4 +4,4 @@ torch
 sqlalchemy
 opencv-python
 ultralytics
-tensorflow
+

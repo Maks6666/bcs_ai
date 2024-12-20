@@ -1,4 +1,6 @@
 import os
+import cv2
+import torch
 
 def get_path(dir_name):
     dir_list = os.listdir(dir_name)
@@ -21,6 +23,19 @@ def get_password():
                 data = line.split()
                 return int(data[0])
 
+
+
+def process_image(img):
+    if img is not None:
+        img = cv2.resize(img, (224, 224))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        img = img / 255.0
+
+        image = torch.tensor(img, dtype=torch.float32)
+        image = image.permute(2, 0, 1)
+
+        return image
 
 
 

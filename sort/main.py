@@ -7,13 +7,14 @@ from time import time
 import random
 
 from connect import Session, get_data, get_status, Vehicles
-from tools import get_path
+from tools import get_path, process_image
+from models import model
 
 class FirstMilitaryTracker:
     def __init__(self, output, save_to_db = True, record = True):
         self.output = output
         self.model = self.load_model()
-        self.names = self.model.names
+        self.names = ['apc', 'ifv', 'tank']
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         self.save_to_db = save_to_db
         self.record = record
@@ -25,7 +26,7 @@ class FirstMilitaryTracker:
 
 
     def load_model(self):
-        model = YOLO("yolo/detector.pt")
+        model = YOLO("classification_detection/vehicles.pt")
         model.fuse()
         return model
 
@@ -48,11 +49,11 @@ class FirstMilitaryTracker:
 
         return np.array(detection_list), summa
 
-    def draw_boxes(self, frame, boxes, ids, class_id):
+    def draw_boxes(self, frame, boxes, ids, class_id, type):
         for box, idx, cls in zip(boxes, ids, class_id):
 
-            name = self.names[cls]
-            label = f"{idx}:{name}"
+            # name = self.names[res.item()]
+            label = f"{idx}:{type}"
 
             cv2.rectangle(frame, (int(box[0]), int(box[1])),
                           (int(box[2]), int(box[3])), (0, 0, 255), 2)
@@ -62,6 +63,8 @@ class FirstMilitaryTracker:
         return frame
 
     def __call__(self):
+
+        out = None
         cap = cv2.VideoCapture(self.output)
         assert cap.isOpened(), "Video capture failed."
 
@@ -74,11 +77,13 @@ class FirstMilitaryTracker:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         number = random.randint(1, 1000)
         output_file = f"output/video_{number}.mp4"
-        out = cv2.VideoWriter(output_file, fourcc, fps, (frame_width, frame_height))
+
+        if self.record:
+            out = cv2.VideoWriter(output_file, fourcc, fps, (frame_width, frame_height))
 
         while True:
+            type = "Analyzing..."
             detected_obj = []
-
 
             start = time()
             ret, frame = cap.read()
@@ -102,17 +107,29 @@ class FirstMilitaryTracker:
 
 
             for box, idx, cls in zip(bboxes, ids, class_id):
+                x1, y1, x2, y2 = map(int, box)
+                obj_frame = frame[y1:y2, x1:x2]
+
+                if obj_frame.size == 0:
+                    continue
+
+                image = process_image(obj_frame)
+                image = image.to(self.device)
+                res = model.predict(image)
+                type = self.names[res.item()]
+
+
                 detected_obj.append(idx)
 
                 if self.save_to_db:
                     obj = self.session.query(Vehicles).filter_by(status_at_moment="detected").all()
-                    get_data(self.session, idx, self.names[int(cls)], len(obj))
+                    get_data(self.session, idx, self.names[int(res.item())], len(obj))
 
             if self.session:
                 get_status(self.session, detected_obj)
 
 
-            frame = self.draw_boxes(frame, bboxes, ids, class_id)
+            frame = self.draw_boxes(frame, bboxes, ids, class_id, type)
 
             end = time()
             fps = 1 / round(end - start, 1)
@@ -120,7 +137,8 @@ class FirstMilitaryTracker:
             cv2.putText(frame, f'Total objects: {summa}', (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
 
             cv2.imshow('1st version', frame)
-            if self.record:
+
+            if out:
                 out.write(frame)
 
 
@@ -143,7 +161,7 @@ class FirstMilitaryTracker:
         cv2.destroyAllWindows()
 
 path = get_path("videos")
-tracker = FirstMilitaryTracker(path, save_to_db=False)
+tracker = FirstMilitaryTracker(path, save_to_db=True, record=True)
 tracker()
 
 
