@@ -99,11 +99,14 @@ class Oko(nn.Module):
         self.skip_block5 = SkipBlock(160, 256)
 
         self.conv5 = nn.Conv2d(256, 512, kernel_size=3, padding=1)
+        self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=1)
 
         self.flatten = nn.Flatten()
 
-        self.linear1 = nn.Linear(512, 64)
-        self.linear2 = nn.Linear(64, num_classes)
+        self.linear1 = nn.Linear(1024, 256)
+        self.drop = nn.Dropout(0.2)
+        self.linear2 = nn.Linear(256, 64)
+        self.linear3 = nn.Linear(64, num_classes)
 
     def forward(self, x):
         out = self.skip_block1(x)
@@ -113,11 +116,16 @@ class Oko(nn.Module):
         out = self.dense_block4(out)
         out = self.skip_block5(out)
         out = self.conv5(out)
+        out = F.relu(out)
+        out = self.conv6(out)
 
         out = self.flatten(out)
         out = self.linear1(out)
         out = F.relu(out)
-        res = self.linear2(out)
+        out = self.drop(out)
+        out = self.linear2(out)
+        out = F.relu(out)
+        res = self.linear3(out)
 
         return res
 
@@ -140,11 +148,10 @@ class Oko(nn.Module):
             return res
 
 
-
 model = Oko()
 model.to(device)
 
-model.load_state_dict(torch.load("classification_detection/oko.pt", map_location=device))
+model.load_state_dict(torch.load("classification_detection/oko_updated.pt", map_location=device))
 
 
 tensor = torch.rand((1, 3, 224, 224)).to(device)
