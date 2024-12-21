@@ -1,7 +1,7 @@
 
 # (BCS) Update 1:
 
-![](bcs_images/title.jpg)
+![](bcs_content/title.jpg)
 
 1) Instead of custom "tracking" I decided to use two common track algorithms - SORT and DeepSort
 to increase quality of detection. I'd like to use first method, because in combat situation fast speed
@@ -17,3 +17,9 @@ P.S additional code parts for DeepSort were taken from:
 3) Improved detection model. Instead of all classes detected, new model versions
 will be concentrated on detection of only three types of vehicles - tanks, APS's and IFV's. Trainung
 process will be also implemented on a new, bigger dataset. 
+
+Basic performance:
+
+![]("bcs_content/battlefield.gif")
+
+![]("bcs_content/tank.gif")
