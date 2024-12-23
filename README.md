@@ -20,8 +20,8 @@ Model detects APS's, but classifies it wrong:
 Once again model detects APC pretty well despite low quality of video, but it classifies it wrong:
 ![](bcs_content/apc_2.gif)
 
-Here model classifies them better, but it remains unstable:
-![](bcs_content/apc's.gif)
+Here model classifies them better, after adding attention mechanism to the classifier model, but it still remains unstable:
+![](bcs_content/apc_3.gif)
 
 It's quite obvious that the problem is in classification model, so I'm going ot try implement it in the most accurate form.
 To be continued... 

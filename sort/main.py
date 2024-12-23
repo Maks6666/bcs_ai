@@ -26,7 +26,7 @@ class FirstMilitaryTracker:
 
 
     def load_model(self):
-        model = YOLO("classification_detection/vehicles.pt")
+        model = YOLO("classification_detection/yolo/vehicles.pt")
         model.fuse()
         return model
 
@@ -49,8 +49,8 @@ class FirstMilitaryTracker:
 
         return np.array(detection_list), summa
 
-    def draw_boxes(self, frame, boxes, ids, class_id, type):
-        for box, idx, cls in zip(boxes, ids, class_id):
+    def draw_boxes(self, frame, boxes, ids, types):
+        for box, idx, type in zip(boxes, ids, types):
 
             # name = self.names[res.item()]
             label = f"{idx}:{type}"
@@ -84,6 +84,7 @@ class FirstMilitaryTracker:
         while True:
             type = "Analyzing..."
             detected_obj = []
+            types = []
 
             start = time()
             ret, frame = cap.read()
@@ -116,7 +117,7 @@ class FirstMilitaryTracker:
                 image = process_image(obj_frame)
                 image = image.to(self.device)
                 res = model.predict(image)
-                type = self.names[res.item()]
+                types.append(self.names[res.item()])
 
 
                 detected_obj.append(idx)
@@ -129,7 +130,7 @@ class FirstMilitaryTracker:
                 get_status(self.session, detected_obj)
 
 
-            frame = self.draw_boxes(frame, bboxes, ids, class_id, type)
+            frame = self.draw_boxes(frame, bboxes, ids, types)
 
             end = time()
             fps = 1 / round(end - start, 1)

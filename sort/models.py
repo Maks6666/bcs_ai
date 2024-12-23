@@ -82,6 +82,166 @@ class DenseBlock(nn.Module):
         return x
 
 
+# 1st version:
+
+# class Oko(nn.Module):
+#     def __init__(self, num_classes=3):
+#         super().__init__()
+#
+#         self.skip_block1 = SkipBlock(3, 32)
+#
+#         self.dense_block2 = DenseBlock(32, 16, num_layers=4)
+#
+#         self.dense_block3 = DenseBlock(96, 16, num_layers=3, pool=False)
+#
+#         self.dense_block4 = DenseBlock(144, 16, num_layers=1, pool=True)
+#
+#         # 160
+#
+#         self.skip_block5 = SkipBlock(160, 256)
+#
+#         self.conv5 = nn.Conv2d(256, 512, kernel_size=3, padding=1)
+#
+#         self.flatten = nn.Flatten()
+#
+#         self.linear1 = nn.Linear(512, 64)
+#         self.linear2 = nn.Linear(64, num_classes)
+#
+#     def forward(self, x):
+#         out = self.skip_block1(x)
+#
+#         out = self.dense_block2(out)
+#         out = self.dense_block3(out)
+#         out = self.dense_block4(out)
+#         out = self.skip_block5(out)
+#         out = self.conv5(out)
+#
+#         out = self.flatten(out)
+#         out = self.linear1(out)
+#         out = F.relu(out)
+#         res = self.linear2(out)
+#
+#         return res
+#
+#     def predict(self, x):
+#         out = None
+#         self.eval()
+#
+#         with torch.no_grad():
+#
+#             if len(x.shape) == 4:
+#                 x = x.to(device)
+#                 out = self.forward(x)
+#
+#             if len(x.shape) == 3:
+#                 x = x.unsqueeze(0).to(device)
+#                 out = self.forward(x)
+#
+#             t_res = torch.softmax(out, dim=1)
+#             res = torch.argmax(t_res, dim=1)
+#             return res
+
+
+# 2nd version:
+
+# class Oko(nn.Module):
+#     def __init__(self, num_classes=3):
+#         super().__init__()
+#
+#         self.skip_block1 = SkipBlock(3, 32)
+#
+#         self.dense_block2 = DenseBlock(32, 16, num_layers=4)
+#
+#         self.dense_block3 = DenseBlock(96, 16, num_layers=3, pool=False)
+#
+#         self.dense_block4 = DenseBlock(144, 16, num_layers=1, pool=True)
+#
+#         # 160
+#
+#         self.skip_block5 = SkipBlock(160, 256)
+#
+#         self.conv5 = nn.Conv2d(256, 512, kernel_size=3, padding=1)
+#         self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=1)
+#
+#         self.flatten = nn.Flatten()
+#
+#         self.linear1 = nn.Linear(1024, 256)
+#         self.drop = nn.Dropout(0.2)
+#         self.linear2 = nn.Linear(256, 64)
+#         self.linear3 = nn.Linear(64, num_classes)
+#
+#     def forward(self, x):
+#         out = self.skip_block1(x)
+#
+#         out = self.dense_block2(out)
+#         out = self.dense_block3(out)
+#         out = self.dense_block4(out)
+#         out = self.skip_block5(out)
+#         out = self.conv5(out)
+#         out = F.relu(out)
+#         out = self.conv6(out)
+#
+#         out = self.flatten(out)
+#         out = self.linear1(out)
+#         out = F.relu(out)
+#         out = self.drop(out)
+#         out = self.linear2(out)
+#         out = F.relu(out)
+#         res = self.linear3(out)
+#
+#         return res
+#
+#     def predict(self, x):
+#         out = None
+#         self.eval()
+#
+#         with torch.no_grad():
+#
+#             if len(x.shape) == 4:
+#                 x = x.to(device)
+#                 out = self.forward(x)
+#
+#             if len(x.shape) == 3:
+#                 x = x.unsqueeze(0).to(device)
+#                 out = self.forward(x)
+#
+#             t_res = torch.softmax(out, dim=1)
+#             res = torch.argmax(t_res, dim=1)
+#             return res
+
+
+# 3rd version:
+
+class SEBlock(nn.Module):
+    def __init__(self, C, r):
+        super().__init__()
+
+        self.aap = nn.AdaptiveAvgPool2d((1, 1))
+        self.flatten = nn.Flatten()
+
+        self.linear1 = nn.Linear(C, C//r)
+        self.linear2 = nn.Linear(C//r, C)
+
+        self.sigmoid = nn.Sigmoid()
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        out = self.aap(x)
+        out = self.flatten(out)
+
+        out = self.linear1(out)
+        out = self.relu(out)
+
+        out = self.linear2(out)
+        out = self.sigmoid(out)
+
+        out = out[:, :, None, None]
+        res = out * x
+
+        return res
+
+
+
 class Oko(nn.Module):
     def __init__(self, num_classes=3):
         super().__init__()
@@ -90,9 +250,15 @@ class Oko(nn.Module):
 
         self.dense_block2 = DenseBlock(32, 16, num_layers=4)
 
+        self.se_block2_1 = SEBlock(C=96, r=16)
+
         self.dense_block3 = DenseBlock(96, 16, num_layers=3, pool=False)
 
+        self.se_block3_1 = SEBlock(C=144, r=16)
+
         self.dense_block4 = DenseBlock(144, 16, num_layers=1, pool=True)
+
+        self.se_block4_1 = SEBlock(C=160, r=16)
 
         # 160
 
@@ -112,8 +278,14 @@ class Oko(nn.Module):
         out = self.skip_block1(x)
 
         out = self.dense_block2(out)
+        out = self.se_block2_1(out)
+
         out = self.dense_block3(out)
+        out = self.se_block3_1(out)
+
         out = self.dense_block4(out)
+        out = self.se_block4_1(out)
+
         out = self.skip_block5(out)
         out = self.conv5(out)
         out = F.relu(out)
@@ -151,12 +323,14 @@ class Oko(nn.Module):
 model = Oko()
 model.to(device)
 
-model.load_state_dict(torch.load("classification_detection/oko_updated.pt", map_location=device))
+model.load_state_dict(torch.load("classification_detection/classification_weights/oko_updated_2.pt", map_location=device))
 
 
 tensor = torch.rand((1, 3, 224, 224)).to(device)
 res = model.predict(tensor)
-print(res.item())
+
+if res is not None:
+    print("All dependencies match!")
 
 
 
