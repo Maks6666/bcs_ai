@@ -5,6 +5,9 @@ from sqlalchemy.ext.declarative import declarative_base
 from tools import get_password
 from datetime import datetime
 
+
+
+
 username = "postgres"
 password = get_password()
 host = "localhost"
@@ -18,9 +21,9 @@ try:
     engine = create_engine(db_url)
     Session = sessionmaker(bind=engine)
     Base = declarative_base()
-    print("Connected to DB")
 except Exception as e:
     print(f"Connection failed: {e}")
+
 
 class Vehicles(Base):
     __tablename__ = "vehicles"
@@ -30,8 +33,6 @@ class Vehicles(Base):
     status_at_moment = Column(String, nullable=False)
     total_at_moment = Column(Integer, nullable=False)
     time_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
 
 
 def get_data(session, tracked_obj_idx, type, total_at_moment, status_at_moment = "detected"):

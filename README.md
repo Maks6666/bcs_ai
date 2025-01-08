@@ -25,3 +25,8 @@ Here model classifies them better, after adding attention mechanism to the class
 
 It's quite obvious that the problem is in classification model, so I'm going ot try implement it in the most accurate form.
 To be continued... 
+
+2) Updated: has brought some logic in DB connection process - now it returns message about successfull connection
+only in case, where DB usage is required by user.
+
+3) Using an "euclidian distance" formula it is also able to classify moving and static objects.

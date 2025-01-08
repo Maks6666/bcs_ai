@@ -11,7 +11,7 @@ from tools import get_path, process_image
 from models import model
 
 class FirstMilitaryTracker:
-    def __init__(self, output, save_to_db = True, record = True):
+    def __init__(self, output, save_to_db, record = True):
         self.output = output
         self.model = self.load_model()
         self.names = ['apc', 'ifv', 'tank']
@@ -19,8 +19,9 @@ class FirstMilitaryTracker:
         self.save_to_db = save_to_db
         self.record = record
 
-        if self.save_to_db:
+        if self.save_to_db == True:
             self.session = Session()
+
         else:
             self.session = None
 
@@ -49,11 +50,11 @@ class FirstMilitaryTracker:
 
         return np.array(detection_list), summa
 
-    def draw_boxes(self, frame, boxes, ids, types):
-        for box, idx, type in zip(boxes, ids, types):
+    def draw_boxes(self, frame, boxes, ids, types, movings):
+        for box, idx, type, moving_status in zip(boxes, ids, types, movings):
 
             # name = self.names[res.item()]
-            label = f"{idx}:{type}"
+            label = f"{idx}:{type}:{moving_status}"
 
             cv2.rectangle(frame, (int(box[0]), int(box[1])),
                           (int(box[2]), int(box[3])), (0, 0, 255), 2)
@@ -63,6 +64,14 @@ class FirstMilitaryTracker:
         return frame
 
     def __call__(self):
+
+        if self.save_to_db == True:
+            try:
+                test_session = Session()
+                t_obj = test_session.query(Vehicles).first()
+                print("Connected to DB!")
+            except Exception as e:
+                print(f"Connection failed: {e}")
 
         out = None
         cap = cv2.VideoCapture(self.output)
@@ -78,11 +87,17 @@ class FirstMilitaryTracker:
         number = random.randint(1, 1000)
         output_file = f"output/video_{number}.mp4"
 
+        previouse_positions = {}
+
         if self.record:
             out = cv2.VideoWriter(output_file, fourcc, fps, (frame_width, frame_height))
 
         while True:
-            type = "Analyzing..."
+            # type = "Analyzing..."
+            #
+            # moving_status = "Doesnt move"
+
+            movings = []
             detected_obj = []
             types = []
 
@@ -109,6 +124,37 @@ class FirstMilitaryTracker:
 
             for box, idx, cls in zip(bboxes, ids, class_id):
                 x1, y1, x2, y2 = map(int, box)
+
+                # make sense when it filled by at least 2 center points:
+                # for example you've got a video with two frames. On the first one object were detected
+                # and because 'previouse_positions' dictionary is empty at the beginning of video processing,
+                # so for "f idx in previouse_positions" we move to the 'else' part and add the index to the dictionary
+                # as key and current center value (of first frame) as a value. But then we processing the seocnd frame and the loop:
+                # "if idx in previouse_positions:" turns True (if object detected) so we take a previouse center value (from first frame) as
+                # prev_center and calculate an euclidean distance between current center and previouse one. If distance is bigger tham 0,
+                # them we mark an object as a moving one.
+
+
+                center = np.array([x1 + x2 / 2, y1 + y2 / 2])
+
+
+                if idx in previouse_positions:
+
+                    prev_center = previouse_positions[idx]
+                    speed = np.linalg.norm(center - prev_center)
+
+                    if speed > 0:
+                        moving_status = "Moving"
+                    else:
+                        moving_status = "Doesn't move"
+
+                else:
+                    moving_status = "Doesn't move"
+
+                previouse_positions[idx] = center
+                movings.append(moving_status)
+
+
                 obj_frame = frame[y1:y2, x1:x2]
 
                 if obj_frame.size == 0:
@@ -122,7 +168,7 @@ class FirstMilitaryTracker:
 
                 detected_obj.append(idx)
 
-                if self.save_to_db:
+                if self.save_to_db == True:
                     obj = self.session.query(Vehicles).filter_by(status_at_moment="detected").all()
                     get_data(self.session, idx, self.names[int(res.item())], len(obj))
 
@@ -130,7 +176,7 @@ class FirstMilitaryTracker:
                 get_status(self.session, detected_obj)
 
 
-            frame = self.draw_boxes(frame, bboxes, ids, types)
+            frame = self.draw_boxes(frame, bboxes, ids, types, movings)
 
             end = time()
             fps = 1 / round(end - start, 1)
