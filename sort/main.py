@@ -13,9 +13,11 @@ from models import model
 class FirstMilitaryTracker:
     def __init__(self, output, save_to_db, record = True):
         self.output = output
+        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         self.model = self.load_model()
         self.names = ['apc', 'ifv', 'tank']
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+
+        # markers
         self.save_to_db = save_to_db
         self.record = record
 
@@ -27,7 +29,7 @@ class FirstMilitaryTracker:
 
 
     def load_model(self):
-        model = YOLO("classification_detection/yolo/vehicles.pt")
+        model = YOLO("classification_detection/yolo/vehicles.pt").to(self.device)
         model.fuse()
         return model
 
@@ -179,7 +181,9 @@ class FirstMilitaryTracker:
             frame = self.draw_boxes(frame, bboxes, ids, types, movings)
 
             end = time()
-            fps = 1 / round(end - start, 1)
+            print(end, start)
+            fps = 1 / (end - start)
+
             cv2.putText(frame, f'FPS: {int(fps)}', (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
             cv2.putText(frame, f'Total objects: {summa}', (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
 
@@ -208,7 +212,7 @@ class FirstMilitaryTracker:
         cv2.destroyAllWindows()
 
 path = get_path("videos")
-tracker = FirstMilitaryTracker(path, save_to_db=True, record=True)
+tracker = FirstMilitaryTracker(path, save_to_db=False, record=True)
 tracker()
 
 
