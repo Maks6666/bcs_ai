@@ -3,19 +3,20 @@ from ultralytics import YOLO
 import torch
 import numpy as np
 import cv2
-from deepsort.main_tree.content.roots.deep_sort.deepsort_tracker import Tracker
 
 class SecondMilitaryTracker:
-    def __init__(self, output):
+    def __init__(self, output, device):
         self.output = output
+        self.device = device
         self.model = self.load_model()
         self.names = self.model.names
-        self.tracker = Tracker()
+        self.tracker = DeepSort(max_iou_distance=0.6, max_age=100)
 
 
     def load_model(self):
         # Load YOLO model
-        model = YOLO("yolo/vehicles_detector.pt")
+        model = YOLO("yolo11n.pt")
+        model.to(self.device)
         model.fuse()
         return model
 
@@ -29,14 +30,19 @@ class SecondMilitaryTracker:
         for result in results.boxes.data.tolist():
             x1, y1, x2, y2, score, class_id = result
             if score > 0.3:
-                res_array.append([int(x1), int(y1), int(x2), int(y2), float(score)])
+                res_array.append(([int(x1), int(y1), int(x2)-int(x1), int(y2)- int(y1)], float(score), int(class_id)))
 
-        self.tracker.update(frame, res_array)
+        print(res_array)
+        tracks = self.tracker.update_tracks(raw_detections=res_array, frame=frame)
 
-        for track in self.tracker.tracks:
-            bbox = track.bbox
+        for track in tracks:
+            if not track.is_confirmed():
+                continue
+
+            bbox = track.to_tlbr()
             x1, y1, x2, y2 = bbox
             track_id = track.track_id
+            class_id = track.get_det_class()
             class_name = self.names[class_id]
 
             cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 255, 0), 3)
@@ -75,7 +81,10 @@ class SecondMilitaryTracker:
         cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
-    file = "videos/Ukraine drone video shows attack on Russian tanks.mp4"
-    tracker = SecondMilitaryTracker(file)
-    tracker()
+
+file = 1
+device = "mps" if torch.backends.mps.is_available() else "cpu"
+tracker = SecondMilitaryTracker(file, device)
+tracker()
+
+
