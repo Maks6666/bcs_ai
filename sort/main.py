@@ -95,9 +95,6 @@ class FirstMilitaryTracker:
             out = cv2.VideoWriter(output_file, fourcc, fps, (frame_width, frame_height))
 
         while True:
-            # type = "Analyzing..."
-            #
-            # moving_status = "Doesnt move"
 
             movings = []
             detected_obj = []
