@@ -14,3 +14,5 @@ only in case, where DB usage is required by user.
 DeepSort:
 
 1) Added two approaches for object tracking using DeepSort: first one worhs with single YOLO model, which detects and classifies objects in the same time. Second approach uses two separate models - YOLO-v11-l for detection and my custom model Oko for classification. Custom one is a CNN model, which combines elements of ResNet and Squeeze-excitation block for better features extraction. You may chech additional information about custom model training in classification_model_training.ipynb file. 
+
+![](/Users/maxkucher/PycharmProjects/bcs_ai/deepsort_v2/demonstration/deep_sort_v2_performance.gif)
