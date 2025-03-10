@@ -302,6 +302,7 @@ class Oko(nn.Module):
         return res
 
     def predict(self, x):
+        print("Predicting...")
         out = None
         self.eval()
 

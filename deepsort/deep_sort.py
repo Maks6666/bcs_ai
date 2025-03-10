@@ -51,9 +51,9 @@ class DeepDetector:
             return frame, None
 
 
+
     def detect_moving(self, frame, detected_objects, previous_positions, movings, moving_status = "Doesn't move"):
         if detected_objects:
-            print("bhh")
             for obj in detected_objects:
                 bbox, idx, score, class_id = obj
 

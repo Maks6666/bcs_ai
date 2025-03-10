@@ -165,6 +165,7 @@ class FirstMilitaryTracker:
                 types.append(self.names[res.item()])
 
 
+
                 detected_obj.append(idx)
 
                 if self.save_to_db == True:
@@ -208,10 +209,12 @@ class FirstMilitaryTracker:
             out.release()
         cv2.destroyAllWindows()
 
-path = get_path("videos")
-tracker = FirstMilitaryTracker(path, save_to_db=False, record=True)
-tracker()
+# path = get_path("videos")
+# tracker = FirstMilitaryTracker(path, save_to_db=False, record=True)
+# tracker()
 
+model = YOLO("classification_detection/yolo/vehicles.pt")
+print(model.names)
 
 
 
