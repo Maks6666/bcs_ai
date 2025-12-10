@@ -1,0 +1,7 @@
+path: "/kaggle/working/data"
+train: "/kaggle/working/data/train/images"
+val: "/kaggle/working/data/val/images"
+test: "/kaggle/working/data/test/images"
+
+nc: 3
+names: ["TANK", "IFV", "APC"]

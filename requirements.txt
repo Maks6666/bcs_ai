@@ -1,0 +1,9 @@
+ultralytics>=8.0.100
+torch>=2.0.0
+opencv-python>=4.7.0
+deep-sort-realtime>=1.3.2
+numpy>=1.23.0
+SQLAlchemy==2.0.23
+scikit-learn>=1.6.0
+psycopg2-binary==2.9.9
+filterpy==1.4.5

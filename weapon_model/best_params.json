@@ -1,0 +1,6 @@
+{
+    "n_estimators": 425,
+    "max_features": "log2",
+    "bootstrap": false,
+    "max_depth": 10
+}
