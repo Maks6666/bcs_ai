@@ -1,5 +1,5 @@
 
-# Tactic battle control system based on AI technology (YOLOv9/custom models).
+# Tactic battle control system based on AI technology (YOLOv9/custom models). -> (Watch 'main' branch for best realisation)
 ![](bcs_images/title.jpg)
 
 ## Idea
