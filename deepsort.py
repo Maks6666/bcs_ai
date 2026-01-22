@@ -667,6 +667,6 @@ class Tracker:
 
 
 weapons = {'atgm': 30, 'cluster_shells': 30, 'unitary_shells': 30, 'fpv_drones': 30}
-path = "video/test_video_3.mp4"
+path = "video/test_video_1.mp4"
 tracker = Tracker(path, weapons)
 tracker()
