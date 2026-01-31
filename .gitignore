@@ -5,4 +5,4 @@
 /deepsort_2.py
 /Users/maxkucher/PycharmProjects/bcs_ai_/models/tactic_model_v01.pt
 ./models/training_old.ipynb
-./teacher_model.pt
+teacher_model.pt
