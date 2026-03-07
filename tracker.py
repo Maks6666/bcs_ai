@@ -33,7 +33,7 @@ class Tracker:
         self.device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         self.tracker = DeepSort(max_age=5, max_iou_distance=0.4)
         self.path = path
-        self.model_link = "/Users/maxkucher/PycharmProjects/bcs_ai_/yolo/best_v02.pt"
+        self.model_link = "./yolo/main_weight.pt"
         self.model = self.load_model()
         self.yolo_names = self.model.names
 
@@ -514,7 +514,11 @@ class Tracker:
         cv2.destroyAllWindows()
 
 
+
+
 weapons = {'atgm': 30, 'cluster_shells': 30, 'unitary_shells': 30, 'fpv_drones': 30}
 path = "./video/test_video_1.mp4"
 tracker = Tracker(path, weapons)
 tracker()
+
+# python3 tracker.py
