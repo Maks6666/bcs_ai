@@ -5,6 +5,7 @@ import torch
 from collections import defaultdict, deque
 import numpy as np
 import threading
+import math 
 
 from conv_lstm_model import model
 
@@ -18,18 +19,21 @@ import warnings
 
 from src.threat import ThreatEstimator
 from src.distance import DistanceEstimator
-from src.vehicles_counter import VehiclesCounter
-from src.status_counter import StatusCounter
+from src.counter import Counter
 from src.items_encoder import ItemsEncoder
 from src.tactic_predictor import TacticPredictor 
 from src.weapon_counter import WeaponCounter
 from src.command_predictor import CommandPredictor
+from src.maneuver_predict import ManeuverPredictor
+from src.pixel_to_world import Pixel2World
+from src.map_window import MapWindow
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 class Tracker:
-    def __init__(self, path, weapons):
+    def __init__(self, path, weapons, map_size):
+
         self.device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         self.tracker = DeepSort(max_age=5, max_iou_distance=0.4)
         self.path = path
@@ -65,14 +69,28 @@ class Tracker:
 
         self.threat_scores = {}
 
+
+        # camera angle - 90° - this is what camera sees
+        self.fov_horizontal = 90  
+        self.pixel2world = Pixel2World(self.fov_horizontal)
+        self.positions = {} 
+
         self.threat = ThreatEstimator(self.yolo_names)
         self.distance = DistanceEstimator(self.yolo_names, self.vehicle_real_width)
-        self.counter = VehiclesCounter()
-        self.status_counter = StatusCounter()
+        # self.vehicles_counter = VehiclesCounter()
+        self.counter = Counter()
         self.items_encoder = ItemsEncoder(self.weapons)
         self.tactic_predictor = TacticPredictor(self.maneuvers)
         self.weapon_counter = WeaponCounter(self.weapons)
         self.command_predictor = CommandPredictor(self.commands)
+        self.maneuver_predictor = ManeuverPredictor(self.tactics, self.device)
+
+        self.map_size = map_size
+        self.scale = 1
+        self.flank_threshold = 50
+        self.map = MapWindow(self.map_size, self.scale, self.flank_threshold)
+
+        self.flank_position = {'left_flank': [], 'center': [], 'right_flank': []}
 
 
     def load_model(self):
@@ -181,84 +199,7 @@ class Tracker:
     #     self.weapons["cluster_shells"] = cl_shells
     #     self.weapons["unitary_shells"] = u_shells
     #     self.weapons["fpv_drones"] = fpv
-    def compute_dense_optical_flow(self, frames):
-        assert frames.ndim == 4, "frames must be [T, H, W, 3]"
-        assert frames.shape[-1] == 3, "frames must be RGB"
 
-        flows = []
-
-        prev_gray = cv2.cvtColor(frames[0], cv2.COLOR_RGB2GRAY)
-
-        for t in range(1, frames.shape[0]):
-            curr_gray = cv2.cvtColor(frames[t], cv2.COLOR_RGB2GRAY)
-
-            flow = cv2.calcOpticalFlowFarneback(
-                prev_gray,
-                curr_gray,
-                None,
-                pyr_scale=0.5,
-                levels=3,
-                winsize=15,
-                iterations=3,
-                poly_n=5,
-                poly_sigma=1.2,
-                flags=0
-            )
-
-            flows.append(flow)
-            prev_gray = curr_gray
-
-        return np.stack(flows, axis=0)
-    
-
-    
-    
-    def prediction(self, frames, idx) -> None:
-        """
-        frames: list of 16 RGB frames [H, W, 3]
-        """
-
-        #  stack -> numpy
-        video = np.stack(frames, axis=0).astype(np.uint8)  # [16, H, W, 3]
-
-        # optical flow
-        flows = self.compute_dense_optical_flow(video)  # [15, H, W, 2]
-
-        
-        dx = flows[..., 0]
-        dy = flows[..., 1]
-        mag = np.sqrt(dx**2 + dy**2)
-
-        flow_seq = np.stack([
-            dx.mean(axis=(1, 2)),
-            dy.mean(axis=(1, 2)),
-            mag.mean(axis=(1, 2))
-        ], axis=1)  # [15, 3]
-
-        flow_seq = np.clip(flow_seq, -20, 20) / 20.0
-
-        # torch
-        x = torch.tensor(flow_seq, dtype=torch.float32).unsqueeze(0)
-        x = x.to(self.device)   # [1, 15, 3]
-
-        pred = model.predict(x)
-
-        self.tactics[idx] = self.tactic_names[pred]
-
-
-    # def prediction(self, frames, idx) -> None:
-    #     clip = np.stack(frames, axis=0)
-    #     clip = np.transpose(clip, (0, 3, 1, 2))
-    #     clip = torch.tensor(clip, dtype=torch.float32).unsqueeze(0) / 255.0
-
-
-    #     # clip = clip.permute(0, 2, 1, 3, 4)
-    #     # print(clip.shape)
-    #     res = model.predict(clip)
-    #     name = self.tactic_names[int(res)]
-    #     self.tactics[idx] = str(name)
-
-        # print(self.tactics)
 
     def get_center(self, x1, y1, x2, y2):
         x_center = (x1 + x2) // 2
@@ -294,6 +235,11 @@ class Tracker:
 
                 action = "Analyzing..." if idx not in self.tactics else self.tactics[idx]
                 dist = "Calculating..." if idx not in self.distances else self.distances[idx]
+
+                position = self.positions[idx]
+                X, Y = position
+                coord_text = f"({int(X)}m, {int(Y)}m)"
+                cv2.putText(frame, coord_text, (x1, y2 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, colour, 1)
 
                 text = f"{idx} | {self.yolo_names[int(class_id)]} | {dist}m | {action}"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
@@ -356,7 +302,6 @@ class Tracker:
         priority = max(self.threat_scores, key=self.threat_scores.get)
         return priority
 
-
     
     def add_to_db(self):
         if len(self.vehicles) > 0 and len(self.tactics) > 0:
@@ -372,6 +317,7 @@ class Tracker:
                     row = Table(type=type, vehicle_index=idx, action=tactic)
                     session.add(row)
             session.commit()
+
 
     def info_window(self, amount, amount_of_actions, tactical_maneuver, command, priority):
         window = np.zeros((400, 850, 3), dtype=np.uint8)
@@ -396,6 +342,13 @@ class Tracker:
         else:
             priority_text = f"Priority: has no priority target"
         cv2.putText(window, priority_text, (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+        l_f = len(self.flank_position['left_flank'])
+        c_f = len(self.flank_position['center'])
+        r_f = len(self.flank_position['right_flank'])
+
+        flank_text = f"Targets on left flank: {l_f} | Targets on central flank: {c_f} | Targets on right flank: {r_f}"
+        cv2.putText(window, flank_text, (20, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         return window
 
@@ -424,6 +377,9 @@ class Tracker:
 
         while True:
             self.vehicles = {}
+            self.positions = {}
+            self.flank_position = {'left_flank': [], 'center': [], 'right_flank': []}
+
             ret, frame = cap.read()
 
             if not ret:
@@ -444,8 +400,14 @@ class Tracker:
                 self.coordinates[idx] = (x1, y1, x2, y2)
 
                 # self.estimate_distance(bboxes, idx, class_id)
-                D = self.distance.estimate(bboxes, idx, class_id)
+                D = self.distance.estimate(bboxes, idx, class_id, w)
                 self.distances[idx] = D
+
+                x1_, y1_, x2_, y2_ = map(int, bboxes)
+                cx, cy = self.get_center(x1_, y1_, x2_, y2_)
+                X, Y = self.pixel2world.calculcate(cx, w, D)
+
+                self.positions[idx] = (X, Y)
 
                 D = self.distances[idx]
                 action = self.tactics.get(idx, "Analyzing...")
@@ -465,11 +427,11 @@ class Tracker:
 
                 if len(self.frames[idx]) == self.frames_length:
                     frames = list(self.frames[idx])
-                    threading.Thread(target=self.prediction, args=(frames, idx)).start()
+                    threading.Thread(target=self.maneuver_predictor.prediction, args=(frames, idx)).start()
                     self.frames[idx].clear()
 
             
-            tank, ifv, apc = self.counter.count(self.vehicles)
+            tank, ifv, apc = self.counter.count_vehicles(self.vehicles)
             amount = (tank, ifv, apc)
 
             array = self.items_encoder.encode(tank, ifv, apc)
@@ -483,18 +445,22 @@ class Tracker:
 
             self.update_dict(resutls_array)
 
-            amount_of_actions, actions = self.status_counter.count_statuses(self.tactics)
+            amount_of_actions, actions = self.counter.count_statuses(self.tactics)
 
             tactic_prediction = self.tactic_predictor.predict_tactic(actions, self.tactics)
 
             priority = self.choose_target()
 
+            self.add_to_db()
+
+            map_img = self.map.draw_screen()
+            map_img_ = self.map.draw_objects(map_img, self.vehicles, self.positions, self.threat_scores, self.tactics)
+            self.counter.count_flanks(self.positions, self.scale, self.map_size, self.flank_threshold, self.flank_position)
+
             frame = self.draw(frame, resutls_array, priority)
             self.draw_total_coordinates(frame, resutls_array, h, w)
 
             info_window = self.info_window(amount, amount_of_actions, tactic_prediction, command, priority)
-
-            self.add_to_db()
 
             data = self.return_data(amount, actions, tactic_prediction, command, priority)
             # print(data)
@@ -502,6 +468,13 @@ class Tracker:
             self.last_frame = frame
             self.logs = data
 
+            # map_img = self.map_window()
+            # map_img = self.draw_flanks(map_img)
+            
+        
+
+
+            cv2.imshow("Top-Down Map", map_img_)
             cv2.imshow('YOLO Tracker', frame)
             cv2.imshow('info_window', info_window)
 
@@ -518,7 +491,8 @@ class Tracker:
 
 weapons = {'atgm': 30, 'cluster_shells': 30, 'unitary_shells': 30, 'fpv_drones': 30}
 path = "./video/test_video_1.mp4"
-tracker = Tracker(path, weapons)
+map_size = 600
+tracker = Tracker(path, weapons, map_size)
 tracker()
 
 # python3 tracker.py
