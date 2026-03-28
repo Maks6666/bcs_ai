@@ -27,6 +27,7 @@ from src.command_predictor import CommandPredictor
 from src.maneuver_predict import ManeuverPredictor
 from src.pixel_to_world import Pixel2World
 from src.map_window import MapWindow
+from src.speed import Velocity
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -73,6 +74,8 @@ class Tracker:
         # camera angle - 90° - this is what camera sees
         self.fov_horizontal = 90  
         self.pixel2world = Pixel2World(self.fov_horizontal)
+
+        self.prev_positions = {}
         self.positions = {} 
 
         self.threat = ThreatEstimator(self.yolo_names)
@@ -84,6 +87,7 @@ class Tracker:
         self.weapon_counter = WeaponCounter(self.weapons)
         self.command_predictor = CommandPredictor(self.commands)
         self.maneuver_predictor = ManeuverPredictor(self.tactics, self.device)
+        
 
         self.map_size = map_size
         self.scale = 1
@@ -91,6 +95,11 @@ class Tracker:
         self.map = MapWindow(self.map_size, self.scale, self.flank_threshold)
 
         self.flank_position = {'left_flank': [], 'center': [], 'right_flank': []}
+
+        self.prev_time = {}       
+        self.velocities = {}
+
+        self.velocity_counter = Velocity(self.prev_positions, self.prev_time, self.velocities)
 
 
     def load_model(self):
@@ -241,9 +250,17 @@ class Tracker:
                 coord_text = f"({int(X)}m, {int(Y)}m)"
                 cv2.putText(frame, coord_text, (x1, y2 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, colour, 1)
 
-                text = f"{idx} | {self.yolo_names[int(class_id)]} | {dist}m | {action}"
+                _, _, speed = self.velocities[idx]
+                speed = speed * 3.6
+                speed = round(speed, 2)
+
                 cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
+
+                text = f"{idx} | {self.yolo_names[int(class_id)]} | {dist}m | {action}"
                 cv2.putText(frame, text, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
+
+                speed_text = f'{speed} km/h'
+                cv2.putText(frame, speed_text, (x1+50, y1+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
 
             return frame
 
@@ -357,13 +374,20 @@ class Tracker:
 
         tanks, ifv, apc = amount
         moving_forward, from_left_flank, from_right_flank, moving_back = actions
+
+        l_f = len(self.flank_position['left_flank'])
+        c_f = len(self.flank_position['center'])
+        r_f = len(self.flank_position['right_flank'])
+
+
         data = {
             "total_amount": total_amount,
             "amount": {"tanks": tanks, "ifv": ifv, "apc": apc},
             "actions": {"moving_forward": moving_forward, "from_left_flank": from_left_flank, "from_right_flank": from_right_flank, "moving_back": moving_back},
             "tactic": tactic_prediction,
             "command": command,
-            "priority": priority
+            "priority": priority,
+            'flank': {'on_left_flank': l_f, 'on_central_flank': c_f, 'on_right_flank': r_f}
         }
 
         return data
@@ -376,7 +400,7 @@ class Tracker:
         # print(self.weapons)
 
         while True:
-            self.vehicles = {}
+            # self.vehicles = {}
             self.positions = {}
             self.flank_position = {'left_flank': [], 'center': [], 'right_flank': []}
 
@@ -407,6 +431,11 @@ class Tracker:
                 cx, cy = self.get_center(x1_, y1_, x2_, y2_)
                 X, Y = self.pixel2world.calculcate(cx, w, D)
 
+                # self.velocity(idx, X, Y)
+
+                self.velocity_counter.calculate(idx, X, Y)
+                # print(self.velocities[idx])
+        
                 self.positions[idx] = (X, Y)
 
                 D = self.distances[idx]
@@ -455,6 +484,7 @@ class Tracker:
 
             map_img = self.map.draw_screen()
             map_img_ = self.map.draw_objects(map_img, self.vehicles, self.positions, self.threat_scores, self.tactics)
+
             self.counter.count_flanks(self.positions, self.scale, self.map_size, self.flank_threshold, self.flank_position)
 
             frame = self.draw(frame, resutls_array, priority)
@@ -471,9 +501,7 @@ class Tracker:
             # map_img = self.map_window()
             # map_img = self.draw_flanks(map_img)
             
-        
-
-
+    
             cv2.imshow("Top-Down Map", map_img_)
             cv2.imshow('YOLO Tracker', frame)
             cv2.imshow('info_window', info_window)
