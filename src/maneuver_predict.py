@@ -4,9 +4,10 @@ import numpy as np
 from conv_lstm_model import model
 
 class ManeuverPredictor:
-    def __init__(self, tactics, device):
+    def __init__(self, tactics, tactics_proba, device):
         self.tactic_names = ['moving_back', 'center_flank', 'from_left_flank', 'from_right_flank']
         self.tactics = tactics
+        self.tactics_proba = tactics_proba
         self.device = device
         
     def compute_dense_optical_flow(self, frames):
@@ -67,7 +68,11 @@ class ManeuverPredictor:
         x = x.to(self.device)   # [1, 15, 3]
 
         pred = model.predict(x)
+        proba = model.predict_proba(x)
+
+        
 
         self.tactics[idx] = self.tactic_names[pred]
+        self.tactics_proba[idx] = proba
 
     

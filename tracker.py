@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 class Tracker:
-    def __init__(self, path, weapons, map_size):
+    def __init__(self, path, weapons, map_size, max_dist):
 
         self.device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         self.tracker = DeepSort(max_age=5, max_iou_distance=0.4)
@@ -51,6 +51,7 @@ class Tracker:
 
         self.tactic_names = ['moving_back', 'center_flank', 'from_left_flank', 'from_right_flank']
         self.tactics = {}
+        self.tactics_proba = {}
 
         self.threshold = 0.35
         self.frames = defaultdict(lambda: deque(maxlen=16))
@@ -76,9 +77,11 @@ class Tracker:
         self.pixel2world = Pixel2World(self.fov_horizontal)
 
         self.prev_positions = {}
-        self.positions = {} 
+        self.positions = {}
 
-        self.threat = ThreatEstimator(self.yolo_names)
+        self.max_dist = max_dist 
+
+        self.threat = ThreatEstimator(self.yolo_names, self.max_dist)
         self.distance = DistanceEstimator(self.yolo_names, self.vehicle_real_width)
         # self.vehicles_counter = VehiclesCounter()
         self.counter = Counter()
@@ -86,7 +89,7 @@ class Tracker:
         self.tactic_predictor = TacticPredictor(self.maneuvers)
         self.weapon_counter = WeaponCounter(self.weapons)
         self.command_predictor = CommandPredictor(self.commands)
-        self.maneuver_predictor = ManeuverPredictor(self.tactics, self.device)
+        self.maneuver_predictor = ManeuverPredictor(self.tactics, self.tactics_proba, self.device)
         
 
         self.map_size = map_size
@@ -100,6 +103,9 @@ class Tracker:
         self.velocities = {}
 
         self.velocity_counter = Velocity(self.prev_positions, self.prev_time, self.velocities)
+
+        self.current_priority = None
+        
 
 
     def load_model(self):
@@ -208,6 +214,18 @@ class Tracker:
     #     self.weapons["cluster_shells"] = cl_shells
     #     self.weapons["unitary_shells"] = u_shells
     #     self.weapons["fpv_drones"] = fpv
+    
+    def predict_position(self, idx, t=2):
+        if idx not in self.positions or idx not in self.velocities:
+            return None 
+        
+        X, Y = self.positions[idx]
+        v_x, v_y, _ = self.velocities[idx]
+
+        X_f = X + v_x * t
+        Y_f = Y + v_y * t
+
+        return (X_f, Y_f)
 
 
     def get_center(self, x1, y1, x2, y2):
@@ -243,6 +261,7 @@ class Tracker:
                         self.draw_target(x_center, y_center, frame, colour)
 
                 action = "Analyzing..." if idx not in self.tactics else self.tactics[idx]
+                action_proba = '...' if idx not in self.tactics_proba else round(self.tactics_proba[idx].item(), 2)*100
                 dist = "Calculating..." if idx not in self.distances else self.distances[idx]
 
                 position = self.positions[idx]
@@ -254,13 +273,15 @@ class Tracker:
                 speed = speed * 3.6
                 speed = round(speed, 2)
 
+                score = self.threat_scores[idx]
+
                 cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
 
-                text = f"{idx} | {self.yolo_names[int(class_id)]} | {dist}m | {action}"
-                cv2.putText(frame, text, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
+                upper_text = f"{idx} | {self.yolo_names[int(class_id)]} | {dist}m | {action}: {action_proba}%"
+                cv2.putText(frame, upper_text, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
 
-                speed_text = f'{speed} km/h'
-                cv2.putText(frame, speed_text, (x1+50, y1+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
+                lower_text = f'{score} | {speed} km/h'
+                cv2.putText(frame, lower_text, (x1+50, y1+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
 
             return frame
 
@@ -302,22 +323,30 @@ class Tracker:
                 del self.tactics[old_idx]
 
 
-    def predict_command(self, array):
-        if len(self.vehicles) > 0:
-            res = weapon_model.predict(array)
-            command = self.commands[int(res)]
-            return command
-        else:
-            return None
-
-    
 
     def choose_target(self):
         if not self.threat_scores:
             return None
-        
-        priority = max(self.threat_scores, key=self.threat_scores.get)
-        return priority
+
+        # new_priority - index of the object with highest score 
+        new_priority = max(self.threat_scores, key=self.threat_scores.get)
+
+        if self.current_priority is None:
+            # here we assign new value to self.current_priority, which os declared in __init__
+            self.current_priority = new_priority
+            return new_priority
+
+        # highest score for a current moment
+        current_score = self.threat_scores.get(self.current_priority, 0)
+
+        # new highest score 
+        new_score = self.threat_scores[new_priority]
+
+
+        if new_score > current_score + 0.1:
+            self.current_priority = new_priority
+
+        return self.current_priority
 
     
     def add_to_db(self):
@@ -402,6 +431,7 @@ class Tracker:
         while True:
             # self.vehicles = {}
             self.positions = {}
+            self.threat_scores = {}
             self.flank_position = {'left_flank': [], 'center': [], 'right_flank': []}
 
             ret, frame = cap.read()
@@ -430,22 +460,31 @@ class Tracker:
                 x1_, y1_, x2_, y2_ = map(int, bboxes)
                 cx, cy = self.get_center(x1_, y1_, x2_, y2_)
                 X, Y = self.pixel2world.calculcate(cx, w, D)
-
-                # self.velocity(idx, X, Y)
-
-                self.velocity_counter.calculate(idx, X, Y)
-                # print(self.velocities[idx])
-        
                 self.positions[idx] = (X, Y)
 
-                D = self.distances[idx]
+
+                # ----------------------------------------------------------------------------------------------------------------------   
+                # THREAT ESTIMATION
+                # ---------------------------------------------------------------------------------------------------------------------- 
+
                 action = self.tactics.get(idx, "Analyzing...")
+                D = self.distances[idx]
+
+                curr_pos = (X, Y)
+                prev_pos = self.prev_positions.get(idx)
+                future_pos = self.predict_position(idx)
+
+                score = self.threat.score(class_id, D, action, conf, curr_pos, prev_pos, future_pos)   
+
+                self.threat_scores[idx] = score 
+
+                # ---------------------------------------------------------------------------------------------------------------------- 
+
+                # this method updates self.prev_positions
+                self.velocity_counter.calculate(idx, X, Y)
+                # print(self.velocities[idx])
+
                 
-                score = self.threat.score(class_id, D, action, conf)
-                # print(score)
-
-                self.threat_scores[idx] = score
-
 
                 crop = frame[y1:y2, x1:x2]
                 if crop.size is None:
@@ -480,7 +519,7 @@ class Tracker:
 
             priority = self.choose_target()
 
-            self.add_to_db()
+            # self.add_to_db()
 
             map_img = self.map.draw_screen()
             map_img_ = self.map.draw_objects(map_img, self.vehicles, self.positions, self.threat_scores, self.tactics)
@@ -493,6 +532,7 @@ class Tracker:
             info_window = self.info_window(amount, amount_of_actions, tactic_prediction, command, priority)
 
             data = self.return_data(amount, actions, tactic_prediction, command, priority)
+
             # print(data)
 
             self.last_frame = frame
@@ -518,9 +558,11 @@ class Tracker:
 
 
 weapons = {'atgm': 30, 'cluster_shells': 30, 'unitary_shells': 30, 'fpv_drones': 30}
-path = "./video/test_video_1.mp4"
+# path = "./video/test_video_1.mp4"
+path = './video/test_video_1.mp4'
 map_size = 600
-tracker = Tracker(path, weapons, map_size)
+max_dist = 1000
+tracker = Tracker(path, weapons, map_size, max_dist)
 tracker()
 
 # python3 tracker.py

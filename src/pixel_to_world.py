@@ -22,7 +22,7 @@ class Pixel2World:
 
         angle_x = dx * (self.fov_horizontal / 2) * math.pi / 180
 
-        X = distance * angle_x
+        X = distance * math.tan(angle_x)
         Y = distance
 
         return X, Y 
