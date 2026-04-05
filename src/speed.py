@@ -16,7 +16,7 @@ class Velocity:
             self.prev_positions[idx] = (X, Y)
             self.prev_time[idx] = t_now
             self.velocities[idx] = (0.0, 0.0, 0.0)
-            return self.velocities.get(idx, (0.0,0.0,0.0))[2]
+            return (0.0, 0.0, 0.0)
 
         X_prev, Y_prev = self.prev_positions[idx]
         t_prev = self.prev_time[idx]
@@ -24,7 +24,7 @@ class Velocity:
         d_t = t_now - t_prev
         
         if d_t < 0.1:
-            return self.velocities.get(idx, (0.0, 0.0, 0.0))[2]
+            return self.velocities.get(idx, (0.0, 0.0, 0.0))
 
         v_x = (X - X_prev) / d_t
         v_y = (Y - Y_prev) / d_t
@@ -49,4 +49,4 @@ class Velocity:
         self.prev_time[idx] = t_now
         self.velocities[idx] = (v_x, v_y, speed)
 
-        return speed
+        return v_x, v_y, speed

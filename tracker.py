@@ -28,6 +28,8 @@ from src.maneuver_predict import ManeuverPredictor
 from src.pixel_to_world import Pixel2World
 from src.map_window import MapWindow
 from src.speed import Velocity
+from src.intent import Inent
+from src.priority import Priority
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -69,8 +71,7 @@ class Tracker:
         self.vehicle_real_width = {"TANK": 3.5, "IFV": 2.8, "APC": 2.5}
         self.distances = {}
 
-        self.threat_scores = {}
-
+        
 
         # camera angle - 90° - this is what camera sees
         self.fov_horizontal = 90  
@@ -104,7 +105,15 @@ class Tracker:
 
         self.velocity_counter = Velocity(self.prev_positions, self.prev_time, self.velocities)
 
-        self.current_priority = None
+        # self.current_priority = None
+        self.threat_scores = {}
+
+        self.priority_calculator = Priority(self.threat_scores)
+
+        self.intents_categories = ["attack", "retreat", "reposition", "idle"]
+        self.history = defaultdict(lambda: deque(maxlen=30))
+        self.intents = {}
+        self.intent_predictor = Inent(self.history, self.intents)
         
 
 
@@ -278,10 +287,14 @@ class Tracker:
                 cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
 
                 upper_text = f"{idx} | {self.yolo_names[int(class_id)]} | {dist}m | {action}: {action_proba}%"
-                cv2.putText(frame, upper_text, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
+                cv2.putText(frame, upper_text, (x1, y1-15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
 
-                lower_text = f'{score} | {speed} km/h'
-                cv2.putText(frame, lower_text, (x1+50, y1+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
+                middle_text = f'{score} | {speed} km/h'
+                cv2.putText(frame, middle_text, (x1+50, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
+
+                intent = self.intents.get(idx, None)
+                lower_text = self.intents_categories[int(intent)] if intent is not None else '...'
+                cv2.putText(frame, f"Inent: {lower_text}", (x1+50, y1+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
 
             return frame
 
@@ -315,39 +328,11 @@ class Tracker:
 
             cv2.rectangle(frame, (int(x1_fin), int(y1_fin)), (int(x2_max), int(y2_max)), (0, 0, 255), 2)
 
-    
     def update_dict(self, resutls):
         current_idx = {idx for (_, idx, _, _) in resutls}
         for old_idx in list(self.tactics.keys()):
             if old_idx not in current_idx:
                 del self.tactics[old_idx]
-
-
-
-    def choose_target(self):
-        if not self.threat_scores:
-            return None
-
-        # new_priority - index of the object with highest score 
-        new_priority = max(self.threat_scores, key=self.threat_scores.get)
-
-        if self.current_priority is None:
-            # here we assign new value to self.current_priority, which os declared in __init__
-            self.current_priority = new_priority
-            return new_priority
-
-        # highest score for a current moment
-        current_score = self.threat_scores.get(self.current_priority, 0)
-
-        # new highest score 
-        new_score = self.threat_scores[new_priority]
-
-
-        if new_score > current_score + 0.1:
-            self.current_priority = new_priority
-
-        return self.current_priority
-
     
     def add_to_db(self):
         if len(self.vehicles) > 0 and len(self.tactics) > 0:
@@ -365,7 +350,7 @@ class Tracker:
             session.commit()
 
 
-    def info_window(self, amount, amount_of_actions, tactical_maneuver, command, priority):
+    def info_window(self, amount, amount_of_actions, tactical_maneuver, command, priority, prioriry_queue):
         window = np.zeros((400, 850, 3), dtype=np.uint8)
         total_amount = len(self.vehicles)
         total_text = f"Total amount of detected objects: {total_amount}"
@@ -396,9 +381,33 @@ class Tracker:
         flank_text = f"Targets on left flank: {l_f} | Targets on central flank: {c_f} | Targets on right flank: {r_f}"
         cv2.putText(window, flank_text, (20, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
+        x_offset = 160
+        for i, (k, v) in enumerate(prioriry_queue.items()):
+            text = f"Place: {k} | Index: {v}"
+            cv2.putText(window, text, (20 + i * x_offset, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+
+
+        cv2.line(window, (0, 170), (850, 170), (0, 255, 0), 1)
+        cv2.putText(window, 'Unit information', (370, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+        y_offset = 20
+        if len(self.history) > 0:
+            for i, (k, v) in enumerate(self.history.items()):
+                v_type = v[-1]['v_type']
+                X, Y = v[-1]['pos']
+                _, _, speed = v[-1]['velocity']
+                action = v[-1]['action']
+                threat = v[-1]['threat']
+                intent_idx = v[-1]['intent']
+                intent = self.intents_categories[intent_idx] if intent_idx is not None else None
+                
+                text = f'IDX: {k}: {v_type} | {round(X, 2)}m/{Y}m | {round(speed, 2)}km/h | {action} | {threat} | {intent}'
+                cv2.putText(window, text, (20, 220 + y_offset * i), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
         return window
 
-    def return_data(self, amount, actions, tactic_prediction, command, priority):
+    def return_data(self, amount, actions, tactic_prediction, command, priority, prioriry_queue):
         total_amount = len(self.vehicles)
 
         tanks, ifv, apc = amount
@@ -416,6 +425,7 @@ class Tracker:
             "tactic": tactic_prediction,
             "command": command,
             "priority": priority,
+            "priorities": prioriry_queue,
             'flank': {'on_left_flank': l_f, 'on_central_flank': c_f, 'on_right_flank': r_f}
         }
 
@@ -431,7 +441,7 @@ class Tracker:
         while True:
             # self.vehicles = {}
             self.positions = {}
-            self.threat_scores = {}
+            self.threat_scores.clear()
             self.flank_position = {'left_flank': [], 'center': [], 'right_flank': []}
 
             ret, frame = cap.read()
@@ -445,9 +455,13 @@ class Tracker:
 
             results = self.results(frame)
             resutls_array = self.get_result(results, frame)
+            current_ids = {idx for (_, idx, _, _) in resutls_array}
 
             for (bboxes, idx, class_id, conf) in resutls_array:
+
+                
                 self.vehicles[idx] = self.yolo_names[int(class_id)]
+                v_type = self.vehicles[idx]
 
                 upd_bboxes = self.resize_frame(bboxes, h, w)
                 x1, y1, x2, y2 = map(int, upd_bboxes)
@@ -468,21 +482,53 @@ class Tracker:
                 # ---------------------------------------------------------------------------------------------------------------------- 
 
                 action = self.tactics.get(idx, "Analyzing...")
+                action_proba = self.tactics_proba.get(idx, None)
+                # print(action_proba)
                 D = self.distances[idx]
 
                 curr_pos = (X, Y)
                 prev_pos = self.prev_positions.get(idx)
                 future_pos = self.predict_position(idx)
 
-                score = self.threat.score(class_id, D, action, conf, curr_pos, prev_pos, future_pos)   
+                score = self.threat.score(class_id, D, action, action_proba, conf, curr_pos, prev_pos, future_pos)   
 
                 self.threat_scores[idx] = score 
 
                 # ---------------------------------------------------------------------------------------------------------------------- 
 
                 # this method updates self.prev_positions
-                self.velocity_counter.calculate(idx, X, Y)
+                v_x, v_y, speed = self.velocity_counter.calculate(idx, X, Y)
                 # print(self.velocities[idx])
+
+                intent = self.intent_predictor.calculate(idx)
+                # print(self.intents)
+
+                self.history[idx].append({
+                    "v_type": v_type,
+                    "pos": (X, Y),
+                    "velocity": (v_x, v_y, speed),
+                    "distance": D,
+                    "action": action,
+                    "threat": score,
+                    "time": time.time(),
+                    'intent': intent
+
+                })
+
+                # if '1' in self.history.keys():
+                #     print(list(self.history['1'])[-10:])
+
+
+            for idx_ in list(self.history.keys()):
+                if idx_ not in current_ids:
+                    del self.history[idx_]
+                    self.intents.pop(idx_, None)
+                    self.positions.pop(idx_, None)
+                    self.velocities.pop(idx_, None)
+                    self.distances.pop(idx_, None)
+
+
+                
 
                 
 
@@ -517,7 +563,15 @@ class Tracker:
 
             tactic_prediction = self.tactic_predictor.predict_tactic(actions, self.tactics)
 
-            priority = self.choose_target()
+            # priority = self.choose_target()
+            # priority_queue = self.priority_list(priority)
+            # print(priority_queue)
+
+            priority = self.priority_calculator.choose_target()
+            # print(priority)
+            priority_queue = self.priority_calculator.priority_list(priority)
+            # print(priority_queue)
+            
 
             # self.add_to_db()
 
@@ -526,12 +580,15 @@ class Tracker:
 
             self.counter.count_flanks(self.positions, self.scale, self.map_size, self.flank_threshold, self.flank_position)
 
+            # if len(self.threat_scores) > 0:
+            #     print(max(self.threat_scores, key=self.threat_scores.get))
+
             frame = self.draw(frame, resutls_array, priority)
             self.draw_total_coordinates(frame, resutls_array, h, w)
 
-            info_window = self.info_window(amount, amount_of_actions, tactic_prediction, command, priority)
+            info_window = self.info_window(amount, amount_of_actions, tactic_prediction, command, priority, priority_queue)
 
-            data = self.return_data(amount, actions, tactic_prediction, command, priority)
+            data = self.return_data(amount, actions, tactic_prediction, command, priority, priority_queue)
 
             # print(data)
 

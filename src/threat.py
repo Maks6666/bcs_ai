@@ -21,7 +21,7 @@ class ThreatEstimator:
         }
 
 
-    def score(self, class_id, distance, action, confidence, curr_pos, prev_pos, future_pos):
+    def score(self, class_id, distance, action, action_proba, confidence, curr_pos, prev_pos, future_pos):
         name = self.class_names[int(class_id)]
         # type score
         type_score = self.type_weights.get(name, 0.5)
@@ -40,6 +40,11 @@ class ThreatEstimator:
             action_weight = 0
         else:
             action_weight = 0.15
+
+        if action_proba is None:
+            action_proba = 0.0
+        
+        action_score *= float(action_proba)
 
 
         # ------------------------------------------------------------------------
