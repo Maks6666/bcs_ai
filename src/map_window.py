@@ -39,7 +39,7 @@ class MapWindow:
         return map_img
 
     
-    def draw_objects(self, map_img, vehicles, positions, threat_scores, tactics):
+    def draw_objects(self, map_img, vehicles, positions, threat_scores, priority):
         for idx, (X, Y) in positions.items():
             # scale = 1
 
@@ -48,7 +48,7 @@ class MapWindow:
 
             v_type = vehicles[idx]
             threat = threat_scores[idx]
-            tactic = tactics[idx] if idx in tactics else 'Analysing'
+            # tactic = tactics[idx] if idx in tactics else 'Analysing'
 
             colour = (0, 255, 0)
             if threat is not None:
@@ -60,13 +60,13 @@ class MapWindow:
                 else:
                     colour = (0, 255, 0)
 
-            text = f"{idx} | {v_type} | {threat} | {tactic}"
+            text = f"{idx} | {v_type} | ({round(X, 2)}m {round(Y, 2)}m)"
 
             # --------------------------------------------------------------------------------------------------------------------
 
-            max_threat_idx = max(threat_scores, key=threat_scores.get)
+            # max_threat_idx = max(threat_scores, key=threat_scores.get)
 
-            if idx == max_threat_idx:
+            if idx == priority:
                 cv2.circle(map_img, (px, py), 12, (0, 0, 255), 2)
                 cv2.circle(map_img, (px, py), 5, (0, 0, 255), -1)
             

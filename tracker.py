@@ -269,32 +269,26 @@ class Tracker:
                         colour = (0, 0, 255)
                         self.draw_target(x_center, y_center, frame, colour)
 
-                action = "Analyzing..." if idx not in self.tactics else self.tactics[idx]
+                action = "..." if idx not in self.tactics else self.tactics[idx]
                 action_proba = '...' if idx not in self.tactics_proba else round(self.tactics_proba[idx].item(), 2)*100
-                dist = "Calculating..." if idx not in self.distances else self.distances[idx]
+                dist = "..." if idx not in self.distances else self.distances[idx]
 
                 position = self.positions[idx]
                 X, Y = position
                 coord_text = f"({int(X)}m, {int(Y)}m)"
                 cv2.putText(frame, coord_text, (x1, y2 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, colour, 1)
 
-                _, _, speed = self.velocities[idx]
-                speed = speed * 3.6
-                speed = round(speed, 2)
-
+            
                 score = self.threat_scores[idx]
 
                 cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
 
-                upper_text = f"{idx} | {self.yolo_names[int(class_id)]} | {dist}m | {action}: {action_proba}%"
+                upper_text = f"{idx} | {self.yolo_names[int(class_id)]} | {action}: {action_proba}%"
                 cv2.putText(frame, upper_text, (x1, y1-15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
-
-                middle_text = f'{score} | {speed} km/h'
-                cv2.putText(frame, middle_text, (x1+50, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
 
                 intent = self.intents.get(idx, None)
                 lower_text = self.intents_categories[int(intent)] if intent is not None else '...'
-                cv2.putText(frame, f"Inent: {lower_text}", (x1+50, y1+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
+                cv2.putText(frame, f"Threat: {score} | Inent: {lower_text}", (x1+50, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
 
             return frame
 
@@ -397,6 +391,7 @@ class Tracker:
                 v_type = v[-1]['v_type']
                 X, Y = v[-1]['pos']
                 _, _, speed = v[-1]['velocity']
+                speed *= 3.6
                 action = v[-1]['action']
                 threat = v[-1]['threat']
                 intent_idx = v[-1]['intent']
@@ -518,22 +513,8 @@ class Tracker:
                 # if '1' in self.history.keys():
                 #     print(list(self.history['1'])[-10:])
 
-
-            for idx_ in list(self.history.keys()):
-                if idx_ not in current_ids:
-                    del self.history[idx_]
-                    self.intents.pop(idx_, None)
-                    self.positions.pop(idx_, None)
-                    self.velocities.pop(idx_, None)
-                    self.distances.pop(idx_, None)
-
-
-                
-
-                
-
                 crop = frame[y1:y2, x1:x2]
-                if crop.size is None:
+                if crop.size == 0:
                     continue
 
                 crop = cv2.resize(crop, (128, 128))
@@ -543,6 +524,21 @@ class Tracker:
                     frames = list(self.frames[idx])
                     threading.Thread(target=self.maneuver_predictor.prediction, args=(frames, idx)).start()
                     self.frames[idx].clear()
+                
+            for idx_ in list(self.history.keys()):
+                if idx_ not in current_ids:
+                    del self.history[idx_]
+                    self.intents.pop(idx_, None)
+                    self.positions.pop(idx_, None)
+                    self.velocities.pop(idx_, None)
+                    self.distances.pop(idx_, None)
+
+                    self.frames.pop(idx_, None)
+                    self.vehicles.pop(idx_, None)
+                    self.coordinates.pop(idx_, None)
+                    self.tactics.pop(idx_, None)
+                    self.tactics_proba.pop(idx_, None)
+
 
             
             tank, ifv, apc = self.counter.count_vehicles(self.vehicles)
@@ -576,7 +572,7 @@ class Tracker:
             # self.add_to_db()
 
             map_img = self.map.draw_screen()
-            map_img_ = self.map.draw_objects(map_img, self.vehicles, self.positions, self.threat_scores, self.tactics)
+            map_img_ = self.map.draw_objects(map_img, self.vehicles, self.positions, self.threat_scores, priority)
 
             self.counter.count_flanks(self.positions, self.scale, self.map_size, self.flank_threshold, self.flank_position)
 
