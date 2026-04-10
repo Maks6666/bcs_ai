@@ -34,6 +34,11 @@ from src.priority import Priority
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+
+class SubTracker:
+    ...
+    # yolox - > if 'yes' - start Tracker
+
 class Tracker:
     def __init__(self, path, weapons, map_size, max_dist):
 
@@ -67,6 +72,8 @@ class Tracker:
 
         self.last_frame = None
         self.logs = None
+        self.map_frame = None 
+        self.unique_logs = None 
 
         self.vehicle_real_width = {"TANK": 3.5, "IFV": 2.8, "APC": 2.5}
         self.distances = {}
@@ -426,6 +433,32 @@ class Tracker:
 
         return data
 
+
+    def return_unique_data(self):
+        data_dict = {}
+        if len(self.history) > 0:
+            for k, v in self.history.items():
+                object_dict = {}
+                sub_dict = v[-1]
+                # print(k, sub_dict)
+                
+                object_dict['v_type'] = sub_dict['v_type']
+                object_dict['pos'] = sub_dict['pos']
+
+                _, _, speed = sub_dict['velocity']
+                object_dict['speed'] = speed
+
+                object_dict['distance'] = sub_dict['distance']
+                object_dict['action'] = sub_dict['action']
+                object_dict['threat'] = sub_dict['threat']
+                object_dict['time'] = sub_dict['time']
+                object_dict['intent'] = sub_dict['intent']
+
+                data_dict[k] = object_dict
+
+        
+        return data_dict
+
     def __call__(self):
         cap = cv2.VideoCapture(self.path)
         assert cap.isOpened()
@@ -485,7 +518,9 @@ class Tracker:
                 prev_pos = self.prev_positions.get(idx)
                 future_pos = self.predict_position(idx)
 
-                score = self.threat.score(class_id, D, action, action_proba, conf, curr_pos, prev_pos, future_pos)   
+                intent = self.intent_predictor.calculate(idx)
+
+                score = self.threat.score(class_id, D, action, action_proba, conf, curr_pos, prev_pos, future_pos, intent)   
 
                 self.threat_scores[idx] = score 
 
@@ -495,7 +530,7 @@ class Tracker:
                 v_x, v_y, speed = self.velocity_counter.calculate(idx, X, Y)
                 # print(self.velocities[idx])
 
-                intent = self.intent_predictor.calculate(idx)
+                # intent = self.intent_predictor.calculate(idx)
                 # print(self.intents)
 
                 self.history[idx].append({
@@ -524,6 +559,7 @@ class Tracker:
                     frames = list(self.frames[idx])
                     threading.Thread(target=self.maneuver_predictor.prediction, args=(frames, idx)).start()
                     self.frames[idx].clear()
+
                 
             for idx_ in list(self.history.keys()):
                 if idx_ not in current_ids:
@@ -585,11 +621,14 @@ class Tracker:
             info_window = self.info_window(amount, amount_of_actions, tactic_prediction, command, priority, priority_queue)
 
             data = self.return_data(amount, actions, tactic_prediction, command, priority, priority_queue)
+            unique_data = self.return_unique_data()
 
             # print(data)
 
             self.last_frame = frame
+            self.map_frame = map_img_
             self.logs = data
+            self.unique_logs = unique_data
 
             # map_img = self.map_window()
             # map_img = self.draw_flanks(map_img)
