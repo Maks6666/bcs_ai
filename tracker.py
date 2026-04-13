@@ -5,7 +5,7 @@ import torch
 from collections import defaultdict, deque
 import numpy as np
 import threading
-import math 
+import gps
 
 from conv_lstm_model import model
 
@@ -30,6 +30,7 @@ from src.map_window import MapWindow
 from src.speed import Velocity
 from src.intent import Inent
 from src.priority import Priority
+from src.gps import Local2GPS
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -40,7 +41,7 @@ class SubTracker:
     # yolox - > if 'yes' - start Tracker
 
 class Tracker:
-    def __init__(self, path, weapons, map_size, max_dist):
+    def __init__(self, path, weapons, map_size, scale, max_dist, lat, lon, heading):
 
         self.device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         self.tracker = DeepSort(max_age=5, max_iou_distance=0.4)
@@ -101,7 +102,7 @@ class Tracker:
         
 
         self.map_size = map_size
-        self.scale = 1
+        self.scale = scale
         self.flank_threshold = 50
         self.map = MapWindow(self.map_size, self.scale, self.flank_threshold)
 
@@ -121,6 +122,12 @@ class Tracker:
         self.history = defaultdict(lambda: deque(maxlen=30))
         self.intents = {}
         self.intent_predictor = Inent(self.history, self.intents)
+
+        self.lat = lat
+        self.lon = lon
+        self.heading = heading
+        self.gps_convertor = Local2GPS(self.lat, self.lon, self.heading)
+        self.geo_positions = {}
         
 
 
@@ -352,7 +359,7 @@ class Tracker:
 
 
     def info_window(self, amount, amount_of_actions, tactical_maneuver, command, priority, prioriry_queue):
-        window = np.zeros((400, 850, 3), dtype=np.uint8)
+        window = np.zeros((400, 1050, 3), dtype=np.uint8)
         total_amount = len(self.vehicles)
         total_text = f"Total amount of detected objects: {total_amount}"
         cv2.putText(window, total_text, (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
@@ -389,14 +396,15 @@ class Tracker:
 
 
 
-        cv2.line(window, (0, 170), (850, 170), (0, 255, 0), 1)
-        cv2.putText(window, 'Unit information', (370, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        cv2.line(window, (0, 170), (1050, 170), (0, 255, 0), 1)
+        cv2.putText(window, 'Unit information', (525, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         y_offset = 20
         if len(self.history) > 0:
             for i, (k, v) in enumerate(self.history.items()):
                 v_type = v[-1]['v_type']
                 X, Y = v[-1]['pos']
+                lat, lon = v[-1]['geo']
                 _, _, speed = v[-1]['velocity']
                 speed *= 3.6
                 action = v[-1]['action']
@@ -404,7 +412,7 @@ class Tracker:
                 intent_idx = v[-1]['intent']
                 intent = self.intents_categories[intent_idx] if intent_idx is not None else None
                 
-                text = f'IDX: {k}: {v_type} | {round(X, 2)}m/{Y}m | {round(speed, 2)}km/h | {action} | {threat} | {intent}'
+                text = f'IDX: {k}: {v_type} | {round(X, 2)}m/{Y}m | {round(speed, 2)}km/h | {action} | {threat} | {intent} | {lat}/{lon}°'
                 cv2.putText(window, text, (20, 220 + y_offset * i), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         return window
@@ -444,6 +452,7 @@ class Tracker:
                 
                 object_dict['v_type'] = sub_dict['v_type']
                 object_dict['pos'] = sub_dict['pos']
+                object_dict['geo'] = sub_dict['geo']
 
                 _, _, speed = sub_dict['velocity']
                 object_dict['speed'] = speed
@@ -505,6 +514,17 @@ class Tracker:
                 self.positions[idx] = (X, Y)
 
 
+                lat, lon = self.gps_convertor.convert(X, Y)
+                self.geo_positions[idx] = (lat, lon)
+                # print(self.geo_positions)
+
+                session = gps.gps(mode=gps.WATCH_ENABLE)
+
+                for report in session:
+                    if report['class'] == 'TPV':
+                        print(report.lat, report.lon)
+
+
                 # ----------------------------------------------------------------------------------------------------------------------   
                 # THREAT ESTIMATION
                 # ---------------------------------------------------------------------------------------------------------------------- 
@@ -536,6 +556,7 @@ class Tracker:
                 self.history[idx].append({
                     "v_type": v_type,
                     "pos": (X, Y),
+                    "geo": (lat, lon),
                     "velocity": (v_x, v_y, speed),
                     "distance": D,
                     "action": action,
@@ -574,6 +595,7 @@ class Tracker:
                     self.coordinates.pop(idx_, None)
                     self.tactics.pop(idx_, None)
                     self.tactics_proba.pop(idx_, None)
+                    self.geo_positions.pop(idx_, None)
 
 
             
@@ -653,8 +675,15 @@ weapons = {'atgm': 30, 'cluster_shells': 30, 'unitary_shells': 30, 'fpv_drones':
 # path = "./video/test_video_1.mp4"
 path = './video/test_video_1.mp4'
 map_size = 600
+scale = 0.5
 max_dist = 1000
-tracker = Tracker(path, weapons, map_size, max_dist)
+
+lat = 50.5724
+lon = 31.4883
+
+heading = 20
+
+tracker = Tracker(path, weapons, map_size, scale, max_dist, lat, lon, heading)
 tracker()
 
 # python3 tracker.py
