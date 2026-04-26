@@ -35,6 +35,7 @@ from src.priority import Priority
 from src.gps import Local2GPS
 from src.angle_calculator import AngleCalculator
 from src.centers import Centers
+from src.camera import CameraConfig
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
