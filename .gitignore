@@ -6,3 +6,4 @@
 /Users/maxkucher/PycharmProjects/bcs_ai_/models/tactic_model_v01.pt
 ./models/training_old.ipynb
 teacher_model.pt
+servo_test.py

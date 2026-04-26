@@ -5,7 +5,9 @@ import torch
 from collections import defaultdict, deque
 import numpy as np
 import threading
-import gps
+import math
+import json 
+import socket
 
 from conv_lstm_model import model
 
@@ -31,6 +33,8 @@ from src.speed import Velocity
 from src.intent import Inent
 from src.priority import Priority
 from src.gps import Local2GPS
+from src.angle_calculator import AngleCalculator
+from src.centers import Centers
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -41,7 +45,8 @@ class SubTracker:
     # yolox - > if 'yes' - start Tracker
 
 class Tracker:
-    def __init__(self, path, weapons, map_size, scale, max_dist, lat, lon, heading):
+    def __init__(self, path, weapons, map_size, scale, max_dist, fov_horizontal, fov_vertical,
+                 lat, lon, heading, turret_position, hfov, vfov, raspberry_ip, raspberry_port):
 
         self.device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         self.tracker = DeepSort(max_age=5, max_iou_distance=0.4)
@@ -82,10 +87,12 @@ class Tracker:
         
 
         # camera angle - 90° - this is what camera sees
-        self.fov_horizontal = 90  
-        self.pixel2world = Pixel2World(self.fov_horizontal)
+        self.fov_horizontal = fov_horizontal
+        self.fov_vertical = fov_vertical
+        self.pixel2world = Pixel2World(self.fov_horizontal, self.fov_vertical)
 
         self.prev_positions = {}
+        self.centers = {}
         self.positions = {}
 
         self.max_dist = max_dist 
@@ -99,6 +106,8 @@ class Tracker:
         self.weapon_counter = WeaponCounter(self.weapons)
         self.command_predictor = CommandPredictor(self.commands)
         self.maneuver_predictor = ManeuverPredictor(self.tactics, self.tactics_proba, self.device)
+        self.center = Centers()
+        
         
 
         self.map_size = map_size
@@ -128,6 +137,24 @@ class Tracker:
         self.heading = heading
         self.gps_convertor = Local2GPS(self.lat, self.lon, self.heading)
         self.geo_positions = {}
+
+         # turret part 
+
+        # self.hfov = hfov
+        # self.vfov = vfov
+
+        self.yaw_home = 90
+        self.pitch_home = 60
+        self.turret_position = turret_position
+
+        self.angle = AngleCalculator(self.fov_horizontal, self.fov_vertical, self.yaw_home, self.pitch_home)
+
+
+        self.raspberry_ip = raspberry_ip
+        self.raspberry_port = raspberry_port
+
+        # self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # self.sock.connect((self.raspberry_ip, self.raspberry_port))
         
 
 
@@ -242,19 +269,13 @@ class Tracker:
         if idx not in self.positions or idx not in self.velocities:
             return None 
         
-        X, Y = self.positions[idx]
-        v_x, v_y, _ = self.velocities[idx]
+        X, _, Z = self.positions[idx]
+        v_x, v_z, _ = self.velocities[idx]
 
         X_f = X + v_x * t
-        Y_f = Y + v_y * t
+        Z_f = Z + v_z * t
 
-        return (X_f, Y_f)
-
-
-    def get_center(self, x1, y1, x2, y2):
-        x_center = (x1 + x2) // 2
-        y_center = (y1 + y2) // 2
-        return x_center, y_center
+        return (X_f, Z_f)
 
     def draw_target(self, x_center, y_center, frame, colour):
         center = (x_center, y_center)
@@ -279,7 +300,7 @@ class Tracker:
 
                     if idx == priority:
                         c_x1, c_y1, c_x2, c_y2 = self.coordinates[idx]
-                        x_center, y_center = self.get_center(c_x1, c_y1, c_x2, c_y2)
+                        x_center, y_center = self.center.get_center(c_x1, c_y1, c_x2, c_y2)
                         colour = (0, 0, 255)
                         self.draw_target(x_center, y_center, frame, colour)
 
@@ -288,8 +309,8 @@ class Tracker:
                 dist = "..." if idx not in self.distances else self.distances[idx]
 
                 position = self.positions[idx]
-                X, Y = position
-                coord_text = f"({int(X)}m, {int(Y)}m)"
+                X, Y, Z = position
+                coord_text = f"({int(X)}m, {int(Y)}m, {int(Z)}m)"
                 cv2.putText(frame, coord_text, (x1, y2 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, colour, 1)
 
             
@@ -403,7 +424,7 @@ class Tracker:
         if len(self.history) > 0:
             for i, (k, v) in enumerate(self.history.items()):
                 v_type = v[-1]['v_type']
-                X, Y = v[-1]['pos']
+                X, Y, Z = v[-1]['pos']
                 lat, lon = v[-1]['geo']
                 _, _, speed = v[-1]['velocity']
                 speed *= 3.6
@@ -412,10 +433,22 @@ class Tracker:
                 intent_idx = v[-1]['intent']
                 intent = self.intents_categories[intent_idx] if intent_idx is not None else None
                 
-                text = f'IDX: {k}: {v_type} | {round(X, 2)}m/{Y}m | {round(speed, 2)}km/h | {action} | {threat} | {intent} | {lat}/{lon}°'
+                text = f'IDX: {k}: {v_type} | {round(X, 2)}m/{round(Y, 2)}m/{round(Z, 2)}m | {round(speed, 2)}km/h | {action} | {threat} | {intent} | {lat}/{lon}°'
                 cv2.putText(window, text, (20, 220 + y_offset * i), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         return window
+
+
+    def send_angles(self, yaw_target, pitch_target):
+        message = {
+            "yaw_target": float(yaw_target),
+            "pitch_target": float(pitch_target)
+        }
+
+        file = (json.dumps(message) + '\n').encode('"utf-8"')
+        print("[BCS] raw json:", file.strip())
+        self.sock.sendall(file)
+
 
     def return_data(self, amount, actions, tactic_prediction, command, priority, prioriry_queue):
         total_amount = len(self.vehicles)
@@ -509,20 +542,19 @@ class Tracker:
                 self.distances[idx] = D
 
                 x1_, y1_, x2_, y2_ = map(int, bboxes)
-                cx, cy = self.get_center(x1_, y1_, x2_, y2_)
-                X, Y = self.pixel2world.calculcate(cx, w, D)
-                self.positions[idx] = (X, Y)
+                cx, cy = self.center.get_center(x1_, y1_, x2_, y2_)
+
+                self.centers[idx] = (cx, cy)
+
+                X, Y, Z = self.pixel2world.calculcate(cx, cy, w, h, D)
+                self.positions[idx] = (X, Y, Z)
 
 
                 lat, lon = self.gps_convertor.convert(X, Y)
                 self.geo_positions[idx] = (lat, lon)
                 # print(self.geo_positions)
 
-                session = gps.gps(mode=gps.WATCH_ENABLE)
-
-                for report in session:
-                    if report['class'] == 'TPV':
-                        print(report.lat, report.lon)
+        
 
 
                 # ----------------------------------------------------------------------------------------------------------------------   
@@ -534,7 +566,7 @@ class Tracker:
                 # print(action_proba)
                 D = self.distances[idx]
 
-                curr_pos = (X, Y)
+                curr_pos = (X, Z)
                 prev_pos = self.prev_positions.get(idx)
                 future_pos = self.predict_position(idx)
 
@@ -547,7 +579,7 @@ class Tracker:
                 # ---------------------------------------------------------------------------------------------------------------------- 
 
                 # this method updates self.prev_positions
-                v_x, v_y, speed = self.velocity_counter.calculate(idx, X, Y)
+                v_x, v_z, speed = self.velocity_counter.calculate(idx, X, Z)
                 # print(self.velocities[idx])
 
                 # intent = self.intent_predictor.calculate(idx)
@@ -555,9 +587,9 @@ class Tracker:
 
                 self.history[idx].append({
                     "v_type": v_type,
-                    "pos": (X, Y),
+                    "pos": (X, Y, Z),
                     "geo": (lat, lon),
-                    "velocity": (v_x, v_y, speed),
+                    "velocity": (v_x, v_z, speed),
                     "distance": D,
                     "action": action,
                     "threat": score,
@@ -622,7 +654,34 @@ class Tracker:
             # print(priority_queue)
 
             priority = self.priority_calculator.choose_target()
-            # print(priority)
+
+            if priority:
+                # cx, cy = self.centers[priority]
+                # yaw_target, pitch_target = self.angle.calculate(cx, cy, w, h)
+
+                X, Y, Z = self.positions[priority]
+                Y = 0.0
+
+
+                turret_x, turret_y, turret_z = self.turret_position
+
+                # dx = X - turret_x
+                # dy = Y - turret_y
+                # dz = Z - turret_z
+
+                # yaw = math.degrees(math.atan2(dx, dz))
+                # pitch = math.degrees(math.atan2(dy, math.sqrt(dx * dx + dz * dz)))
+
+                # yaw_target = self.yaw_home - yaw
+                # pitch_target = self.pitch_home - pitch
+
+                yaw_target, pitch_target = self.angle.calculate_absolute(turret_x, turret_y, turret_z, X, Y, Z)
+
+                print(f"[BCS] send -> target={priority}, yaw={yaw_target:.2f}, pitch={pitch_target:.2f}")
+                # self.send_angles(yaw_target, pitch_target)
+                
+                
+            
             priority_queue = self.priority_calculator.priority_list(priority)
             # print(priority_queue)
             
@@ -655,9 +714,9 @@ class Tracker:
             # map_img = self.map_window()
             # map_img = self.draw_flanks(map_img)
             
-    
-            cv2.imshow("Top-Down Map", map_img_)
             cv2.imshow('YOLO Tracker', frame)
+            cv2.imshow("Top-Down Map", map_img_)
+            # cv2.imshow('YOLO Tracker', frame)
             cv2.imshow('info_window', info_window)
 
 
@@ -672,18 +731,38 @@ class Tracker:
 
 
 weapons = {'atgm': 30, 'cluster_shells': 30, 'unitary_shells': 30, 'fpv_drones': 30}
-# path = "./video/test_video_1.mp4"
-path = './video/test_video_1.mp4'
+path = "./video/test_video_1.mp4"
+# path = './video/test_video_1.mp4'
 map_size = 600
-scale = 0.5
+scale = 1
 max_dist = 1000
 
+fov_horizontal = 90
+fov_vertical = 58
+
+
+# coordinates 
 lat = 50.5724
 lon = 31.4883
 
+# camera heading
 heading = 20
 
-tracker = Tracker(path, weapons, map_size, scale, max_dist, lat, lon, heading)
+
+# turret_position = (0.3, 0.0, 0.1)
+# turret_position = (-30, 0.0, 0.0)
+turret_position = (0.0, 0.0, 0.0)
+
+# camera fov
+hfov = 73.7
+vfov = 46.5
+
+
+raspberry_ip = "192.168.1.141"
+raspberry_port = 5000
+
+tracker = Tracker(path, weapons, map_size, scale, max_dist, fov_horizontal, fov_vertical, 
+                  lat, lon, heading, turret_position, hfov, vfov, raspberry_ip, raspberry_port)
 tracker()
 
 # python3 tracker.py

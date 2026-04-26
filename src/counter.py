@@ -43,7 +43,7 @@ class Counter:
 
         center = map_size // 2
         
-        for idx, (X, _) in positions.items():
+        for idx, (X, _, _) in positions.items():
             cx = int(center + X * scale)
 
             left_borded = center - flank_threshold * scale

@@ -60,17 +60,17 @@ class ThreatEstimator:
         # direction_score
         if prev_pos is not None:
             dx = curr_pos[0] - prev_pos[0]
-            dy = curr_pos[1] - prev_pos[1]
+            dz = curr_pos[1] - prev_pos[1]
         else:
-            dx, dy = 0, 0
+            dx, dz = 0, 0
 
-        movement = sqrt(dx ** 2 + dy ** 2)
+        movement = sqrt(dx ** 2 + dz ** 2)
 
         if movement < 0.2:
             direction_score = 0.5
-        elif dy < 0:
+        elif dz < 0:
             direction_score = 1.0
-        elif abs(dx) > abs(dy):
+        elif abs(dx) > abs(dz):
             direction_score = 0.7
         else:
             direction_score = 0.3
@@ -78,8 +78,8 @@ class ThreatEstimator:
         # ------------------------------------------------------------------------
         # future distance score
         if future_pos:
-            _, Y_future = future_pos
-            future_dist = Y_future
+            _, Z_future = future_pos
+            future_dist = Z_future
             future_dist_score = max(0, 1 - future_dist / self.max_dist)
 
         else:

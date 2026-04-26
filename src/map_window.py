@@ -40,11 +40,11 @@ class MapWindow:
 
     
     def draw_objects(self, map_img, vehicles, positions, threat_scores, priority):
-        for idx, (X, Y) in positions.items():
+        for idx, (X, _, Z) in positions.items():
             # scale = 1
 
             px = int(self.center + X * self.scale)
-            py = int(self.center - Y * self.scale)
+            py = int(self.center - Z * self.scale)
 
             v_type = vehicles[idx]
             threat = threat_scores[idx]
@@ -60,7 +60,7 @@ class MapWindow:
                 else:
                     colour = (0, 255, 0)
 
-            text = f"{idx} | {v_type} | ({round(X, 2)}m {round(Y, 2)}m)"
+            text = f"{idx} | {v_type} | ({round(X, 2)}m {round(Z, 2)}m)"
 
             # --------------------------------------------------------------------------------------------------------------------
 

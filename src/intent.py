@@ -20,7 +20,7 @@ class Inent:
 
         # history - list of dicts
         for h in history:
-            X, Y = h['pos']
+            X, Y, Z = h['pos']
             vx, vy, speed = h["velocity"]
             distance = h["distance"]   
             threat = h["threat"]
@@ -30,7 +30,7 @@ class Inent:
             motion_class = self.ACTION_MAP.get(action, 0)
 
             features.append([
-                X, Y, 
+                X, Z, 
                 vx, vy, 
                 speed, 
                 motion_class, 

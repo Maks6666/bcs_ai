@@ -2,27 +2,44 @@ import math
 
 
 class Pixel2World:
-    def __init__(self, fov_horizontal):
+    def __init__(self, fov_horizontal, fov_vertical):
         self.fov_horizontal = fov_horizontal
+        self.fov_vertical = fov_vertical
     
-    def calculcate(self, cx, frame_w, distance):
+    def calculcate(self, cx, cy, frame_w, frame_h, distance):
         center_x = frame_w / 2
+        center_y = frame_h / 2
 
-        dx = (cx - center_x) / center_x
-        # dy = (cy - center_y) / center_y
+        # turns hfov / vfov into radians 
+        hfov = math.radians(self.fov_horizontal)
+        vfov = math.radians(self.fov_vertical)
 
-        # dx / dy - normalized displacement of an object from the center of the frame
-        # dx є [-1, 1]
+        # calculates focal length in pixels
 
-        # Convert normalized horizontal offset (dx in [-1, 1]) into a real-world viewing angle:
-        # camera sees from -FOV/2 to +FOV/2, so dx maps linearly to that range (0 = straight ahead),
-        # then convert degrees to radians for trigonometric functions
+        # fx, fy = parameters that allow you to convert pixel coordinates into 
+        # the direction of the ray from the camera
 
-        # math.pi / 180 - turn angle into radians 
+        # fx, fy - parameters of camera 
+        fx = frame_w / (2 * math.tan(hfov / 2))
+        fy = frame_h / (2 * math.tan(vfov / 2))
 
-        angle_x = dx * (self.fov_horizontal / 2) * math.pi / 180
+        # calculates direction vector in camera space
+        # this is a ray from the camera center through the pixel (cx, cy)
+        x = (cx - center_x) / fx
+        y = (cy - center_y) / fy
+        # z always points forward in camera space, so we can set it to 1
+        z = 1.0
 
-        X = distance * math.tan(angle_x)
-        Y = distance
+        # normalize the direction vector
+        norm = math.sqrt(x*x + y*y + z*z)
 
-        return X, Y 
+        x /= norm
+        y /= norm
+        z /= norm
+
+        # scale the direction vector by the distance to get world coordinates
+        X = distance * x
+        Y = distance * y
+        Z = distance * z
+
+        return X, Y, Z
