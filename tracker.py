@@ -4,12 +4,14 @@ from ultralytics import YOLO
 import torch 
 import numpy as np 
 from sklearn.cluster import DBSCAN
+import threading
 
 from collections import defaultdict, deque
 
 from src.optical_flow import OpticalFlow
 from src.focal_length import FocalLength
 from src.threat_estimation import ThreatEstimator
+from src.group_tracking import GroupTracker
 
 from infantry_tactics_model.infantry_model import model
 
@@ -26,15 +28,17 @@ class Tracker:
         self.names = self.model.names
 
         self.threshold = 0.4
-        self.group_box_const = 15
+        self.group_box_const = 15   
 
         self.optical_flow = OpticalFlow()
 
         self.group_buffers = defaultdict(lambda: deque(maxlen=16))
         self.group_actions = {}
+        self.action_proba = {}
 
         self.prev_groups = {}
         self.next_group_id = 0
+        self.group_tracker = GroupTracker(self.prev_groups, self.next_group_id)
 
         self.frames_needed = 16
         self.tactics = ['advance', 'disperse', 'halt', 'regroup', 'retreat']
@@ -52,6 +56,7 @@ class Tracker:
         
         self.threat_estimator = ThreatEstimator(self.action_threats)
         self.group_threat = {}
+
 
 
 
@@ -130,52 +135,6 @@ class Tracker:
             groups[label].append(bboxes[i])
 
         return groups
-    
-
-    def track_groups(self, groups):
-        
-        group_centers = {}
-
-        for label, group in groups.items():
-
-            x_s = []
-            y_s = []
-
-            for (x1, y1, x2, y2) in group:
-                x_s.append((x1+x2)//2)
-                y_s.append((y1+y2)//2)
-            
-            c_x = int(np.mean(x_s))
-            c_y = int(np.mean(y_s))
-
-            group_centers[label] = (c_x, c_y)
-        
-        tracked_groups = {}
-        final_groups = {}
-
-        for label, (c_x, c_y) in group_centers.items():
-
-            matched_id = None
-            min_dist = 1e9
-
-            for g_id, (p_x, p_y) in self.prev_groups.items():
-                dist = np.sqrt((c_x - p_x)**2 + (c_y - p_y)**2)
-
-                if dist < min_dist and dist < 150:
-                    min_dist = dist
-                    matched_id = g_id
-
-            if matched_id is None:
-                matched_id = self.next_group_id
-                self.next_group_id +=1 
-            
-            tracked_groups[matched_id] = (c_x, c_y)
-            final_groups[matched_id] = groups[label]
- 
-        self.prev_groups = tracked_groups
-
-        return final_groups
-    
 
     def predict_action(self, frames):
         frames = np.stack(frames)
@@ -190,7 +149,14 @@ class Tracker:
 
         res = self.tactics[int(pred)]
 
-        return res
+        proba = model.predict_proba(x)
+
+        return res, proba
+
+    def predict_action_thread(self, g_id, frames):
+        action, proba = self.predict_action(frames)
+        self.group_actions[g_id] = action
+        self.action_proba[g_id] = proba
     
     def estimate_distance(self, groups):
         distcances = {}
@@ -216,6 +182,40 @@ class Tracker:
 
             threat = self.threat_estimator.estimate(dist, size, action)
             self.group_threat[g_id] = threat
+
+
+    def get_crop(self, frame, groups):
+        crops = {}
+
+        h, w, _ = frame.shape
+
+        for g_id, group in groups.items():
+            x1_list, y1_list, x2_list, y2_list = [], [], [], []
+
+            for (x1, y1, x2, y2) in group:
+
+                x1_list.append(x1)
+                y1_list.append(y1)
+                x2_list.append(x2)
+                y2_list.append(y2)
+
+            x1_group = max(0, min(x1_list) - self.group_box_const)
+            y1_group = max(0, min(y1_list) - self.group_box_const)
+
+            x2_group = min(w, max(x2_list) + self.group_box_const)
+            y2_group = min(h, max(y2_list) + self.group_box_const)
+
+            crop = frame[y1_group:y2_group, x1_group:x2_group]
+
+            if crop.size == 0:
+                continue
+
+            crop = cv2.resize(crop, (128, 128))
+            crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+
+            crops[g_id] = crop
+
+        return crops
 
     
     def draw_groups(self, groups, frame):
@@ -251,22 +251,12 @@ class Tracker:
 
             cv2.circle(frame, (cx, cy), 5, (0,0,255), -1)
 
-            crop = frame[y1_group:y2_group, x1_group:x2_group]
+            action = self.group_actions.get(g_id, "analyzing")
+            action_proba = self.action_proba.get(g_id, 0)
+            
+            
 
-            if crop.size != 0:
-                crop = cv2.resize(crop, (128, 128))
-                crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-
-                self.group_buffers[g_id].append(crop)
-
-                if len(self.group_buffers[g_id]) == self.frames_needed:
-                    action = self.predict_action(self.group_buffers[g_id])
-
-                    self.group_actions[g_id] = action
-
-            action = self.group_actions.get(g_id,"analyzing")
-
-            text = f'{dist} m. | {action} | {threat} | {size}'
+            text = f'{dist} m. | {action} ({action_proba:.2f})| {threat} | {size}'
 
             cv2.putText(frame, text, (x1_group + 50 ,y1_group), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,0,0),2)
 
@@ -322,9 +312,18 @@ class Tracker:
 
             groups = self.build_groups(res_array)
 
-            # print(groups)
+            groups = self.group_tracker.track_groups(groups)
 
-            groups = self.track_groups(groups)
+            crops = self.get_crop(frame, groups)
+             
+            for g_id, crop in crops.items():
+                self.group_buffers[g_id].append(crop)
+
+                if len(self.group_buffers[g_id]) == self.frames_needed:
+                    frames = list(self.group_buffers[g_id])
+                    threading.Thread(target=self.predict_action_thread, args=(g_id, frames)).start()
+
+
 
             self.estimate_distance(groups)
 

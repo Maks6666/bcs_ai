@@ -47,6 +47,16 @@ class Net(nn.Module):
 
         res = torch.argmax(out, dim=1)
         return res.item()
+    
+    def predict_proba(self, x):
+        self.eval()
+
+        with torch.no_grad():
+            out = self.forward(x)
+
+        proba = torch.softmax(out, dim=1)
+        proba = proba.max(dim=1).values
+        return float(proba.cpu().numpy())
         
     
 device = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
