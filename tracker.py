@@ -310,6 +310,12 @@ class Tracker:
             results = self.results(frame)
             res_array = self.get_results(results, frame)
 
+            for bbox, idx, class_id in res_array:
+
+                x1, y1, x2, y2 = map(int, bbox)
+                D = self.focal_length.estimate(bbox)
+                cv2.putText(frame, f'{D} m', (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,0), 1)
+
             groups = self.build_groups(res_array)
 
             groups = self.group_tracker.track_groups(groups)
