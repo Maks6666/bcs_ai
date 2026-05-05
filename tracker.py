@@ -721,7 +721,7 @@ class Tracker:
 
             priority_queue = self.priority_calculator.priority_list(priority)
 
-            map_img = self.map.draw_screen(self.cameras)
+            map_img = self.map.draw_screen()
             map_img_ = self.map.draw_objects(map_img, self.vehicles, self.positions, self.threat_scores, priority)
 
             self.counter.count_flanks(self.positions, self.scale, self.map_size, self.flank_threshold, self.flank_position)

@@ -16,7 +16,7 @@ class CameraConfig:
 
     def pixel_to_global(self, cx, cy, frame_w, frame_h, distance):
         # get local coordinates in camera space
-        X, Y, Z = self.pixel2world.calculcate(cx, cy, frame_w, frame_h, distance)
+        X, Y, Z = self.pixel2world.calculate(cx, cy, frame_w, frame_h, distance)
 
         local_X = X
         local_Z = Z       
