@@ -27,7 +27,7 @@ from src.tactic_predictor import TacticPredictor
 from src.weapon_counter import WeaponCounter
 from src.command_predictor import CommandPredictor
 from src.maneuver_predict import ManeuverPredictor
-from src.pixel_to_world import Pixel2World
+
 from src.map_window import MapWindow
 from src.speed import Velocity
 from src.intent import Inent
@@ -46,12 +46,15 @@ class SubTracker:
     # yolox - > if 'yes' - start Tracker
 
 class Tracker:
-    def __init__(self, path, weapons, map_size, scale, max_dist, fov_horizontal, fov_vertical,
-                 lat, lon, heading, turret_position, hfov, vfov, raspberry_ip, raspberry_port):
+    def __init__(self, cameras, weapons, map_size, scale, max_dist,
+                 lat, lon, heading, turret_position, raspberry_ip, raspberry_port):
 
         self.device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-        self.tracker = DeepSort(max_age=5, max_iou_distance=0.4)
-        self.path = path
+        # self.tracker = DeepSort(max_age=5, max_iou_distance=0.4)
+        self.cameras = cameras
+        self.trackers = {camera.camera_id: DeepSort(max_age=5, max_iou_distance=0.4) for camera in cameras}
+
+        
         self.model_link = "./yolo/main_weight.pt"
         self.model = self.load_model()
         self.yolo_names = self.model.names
@@ -88,9 +91,9 @@ class Tracker:
         
 
         # camera angle - 90° - this is what camera sees
-        self.fov_horizontal = fov_horizontal
-        self.fov_vertical = fov_vertical
-        self.pixel2world = Pixel2World(self.fov_horizontal, self.fov_vertical)
+        # self.fov_horizontal = fov_horizontal
+        # self.fov_vertical = fov_vertical
+        # self.pixel2world = Pixel2World(self.fov_horizontal, self.fov_vertical)
 
         self.prev_positions = {}
         self.centers = {}
@@ -141,14 +144,11 @@ class Tracker:
 
          # turret part 
 
-        # self.hfov = hfov
-        # self.vfov = vfov
-
         self.yaw_home = 90
         self.pitch_home = 60
         self.turret_position = turret_position
 
-        self.angle = AngleCalculator(self.fov_horizontal, self.fov_vertical, self.yaw_home, self.pitch_home)
+        self.angle = AngleCalculator(self.yaw_home, self.pitch_home)
 
 
         self.raspberry_ip = raspberry_ip
@@ -169,7 +169,7 @@ class Tracker:
         return self.model(frame, verbose=True)[0]
         # return self.model.predict(frame, verbose=False)
 
-    def get_result(self, results, frame):
+    def get_result(self, results, frame, camera_id):
         res_array = []
         bbox_conf_map = {}
 
@@ -183,7 +183,8 @@ class Tracker:
                 cy = y1 + (y2 - y1) // 2
                 bbox_conf_map[(cx, cy)] = score
 
-        tracks = self.tracker.update_tracks(raw_detections=res_array, frame=frame)
+        tracker = self.trackers[camera_id]
+        tracks = tracker.update_tracks(raw_detections=res_array, frame=frame)
 
         results = []
 
@@ -439,7 +440,21 @@ class Tracker:
 
         return window
 
+    def find_fusion_id(self, X, Z, class_id, threshold=5):
+        for existing_id, (ex_X, _, ex_Z) in self.positions.items():
+            existing_type = self.vehicles.get(existing_id)
 
+            if existing_type != self.yolo_names[int(class_id)]:
+                continue
+
+
+            dist = math.sqrt((X - ex_X) ** 2 + (Z - ex_Z) ** 2)
+
+            if dist < threshold:
+                return existing_id
+            
+        return None
+            
     def send_angles(self, yaw_target, pitch_target):
         message = {
             "yaw_target": float(yaw_target),
@@ -503,118 +518,167 @@ class Tracker:
         return data_dict
 
     def __call__(self):
-        cap = cv2.VideoCapture(self.path)
-        assert cap.isOpened()
+        caps = {
+            camera.camera_id: cv2.VideoCapture(camera.path)
+            for camera in self.cameras
+        }
 
-        # self.input_weapons()
-        # print(self.weapons)
+        
+
+        for cap in caps.values():
+            assert cap.isOpened()
 
         while True:
-            # self.vehicles = {}
             self.positions = {}
             self.threat_scores.clear()
             self.flank_position = {'left_flank': [], 'center': [], 'right_flank': []}
 
-            ret, frame = cap.read()
+            current_ids_per_camera = {camera.camera_id: set() for camera in self.cameras}
 
-            if not ret:
-                break
+            current_ids = set()
+            any_frame = False
 
-            if frame is not None:
-                h, w, _ = frame.shape
+            camera_frames = {}
+            camera_results = {}
+            camera_sizes = {}
 
+            for camera in self.cameras:
+                cap = caps[camera.camera_id]
 
-            results = self.results(frame)
-            resutls_array = self.get_result(results, frame)
-            current_ids = {idx for (_, idx, _, _) in resutls_array}
-
-            for (bboxes, idx, class_id, conf) in resutls_array:
-
-                
-                self.vehicles[idx] = self.yolo_names[int(class_id)]
-                v_type = self.vehicles[idx]
-
-                upd_bboxes = self.resize_frame(bboxes, h, w)
-                x1, y1, x2, y2 = map(int, upd_bboxes)
-                self.coordinates[idx] = (x1, y1, x2, y2)
-
-                # self.estimate_distance(bboxes, idx, class_id)
-                D = self.distance.estimate(bboxes, idx, class_id, w)
-                self.distances[idx] = D
-
-                x1_, y1_, x2_, y2_ = map(int, bboxes)
-                cx, cy = self.center.get_center(x1_, y1_, x2_, y2_)
-
-                self.centers[idx] = (cx, cy)
-
-                X, Y, Z = self.pixel2world.calculcate(cx, cy, w, h, D)
-                self.positions[idx] = (X, Y, Z)
-
-
-                lat, lon = self.gps_convertor.convert(X, Y)
-                self.geo_positions[idx] = (lat, lon)
-                # print(self.geo_positions)
-
-        
-
-
-                # ----------------------------------------------------------------------------------------------------------------------   
-                # THREAT ESTIMATION
-                # ---------------------------------------------------------------------------------------------------------------------- 
-
-                action = self.tactics.get(idx, "Analyzing...")
-                action_proba = self.tactics_proba.get(idx, None)
-                # print(action_proba)
-                D = self.distances[idx]
-
-                curr_pos = (X, Z)
-                prev_pos = self.prev_positions.get(idx)
-                future_pos = self.predict_position(idx)
-
-                intent = self.intent_predictor.calculate(idx)
-
-                score = self.threat.score(class_id, D, action, action_proba, conf, curr_pos, prev_pos, future_pos, intent)   
-
-                self.threat_scores[idx] = score 
-
-                # ---------------------------------------------------------------------------------------------------------------------- 
-
-                # this method updates self.prev_positions
-                v_x, v_z, speed = self.velocity_counter.calculate(idx, X, Z)
-                # print(self.velocities[idx])
-
-                # intent = self.intent_predictor.calculate(idx)
-                # print(self.intents)
-
-                self.history[idx].append({
-                    "v_type": v_type,
-                    "pos": (X, Y, Z),
-                    "geo": (lat, lon),
-                    "velocity": (v_x, v_z, speed),
-                    "distance": D,
-                    "action": action,
-                    "threat": score,
-                    "time": time.time(),
-                    'intent': intent
-
-                })
-
-                # if '1' in self.history.keys():
-                #     print(list(self.history['1'])[-10:])
-
-                crop = frame[y1:y2, x1:x2]
-                if crop.size == 0:
+                ret, frame = cap.read()
+                if not ret:
                     continue
 
-                crop = cv2.resize(crop, (128, 128))
-                self.frames[idx].append(crop)
+                any_frame = True
 
-                if len(self.frames[idx]) == self.frames_length:
-                    frames = list(self.frames[idx])
-                    threading.Thread(target=self.maneuver_predictor.prediction, args=(frames, idx)).start()
-                    self.frames[idx].clear()
+                if frame is not None:
+                    h, w, _ = frame.shape
 
-                
+                results = self.results(frame)
+                resutls_array = self.get_result(results, frame, camera.camera_id)
+                # current_ids = {idx for (_, idx, _, _) in resutls_array}
+
+                global_results_array = []
+
+                for (bboxes, idx, class_id, conf) in resutls_array:
+                    global_id = f"{camera.camera_id}_{idx}"
+    
+                    upd_bboxes = self.resize_frame(bboxes, h, w)
+                    x1, y1, x2, y2 = map(int, upd_bboxes)
+                   
+                    D = self.distance.estimate(bboxes, idx, class_id, w)
+
+                    x1_, y1_, x2_, y2_ = map(int, bboxes)
+                    cx, cy = self.center.get_center(x1_, y1_, x2_, y2_)
+
+                    X, Y, Z = camera.pixel_to_global(cx, cy, w, h, D)
+
+                    # print(self.positions)
+
+                    # -----------------------------------------------------------------------------------------------------------
+
+                    # EXAMPLE 
+
+                    # cam_1
+                    # X, Z = 100, 250
+                    # self.positions = {}  # empty at the beginning
+                    # find_fusion_id(100, 250) → None
+                    # self.positions["cam_1_1"] = (100, 0, 250)
+
+                    # # cam_2
+                    # X, Z = 102, 248
+                    # self.positions = {
+                    #     "cam_1_1": (100, 0, 250)
+                    # }
+
+                    # find_fusion_id(102, 248) → compare with cam_1_1 (100, 250) -> same object
+
+                    # --------------------------------------------------------------------------
+
+                    fusion_id = self.find_fusion_id(X, Z, class_id)
+                    if fusion_id is None:
+                        object_id = global_id
+                    else:
+                        object_id = fusion_id
+
+                    # current_ids.add(object_id)
+
+                    current_ids_per_camera[camera.camera_id].add(object_id)
+
+                    # -----------------------------------------------------------------------------------------------------------
+
+                    self.positions[object_id] = (X, Y, Z)
+                    self.vehicles[object_id] = self.yolo_names[int(class_id)]
+                    self.coordinates[object_id] = (x1, y1, x2, y2)
+                    self.distances[object_id] = D
+                    self.centers[object_id] = (cx, cy)
+
+                    v_type = self.vehicles[object_id]
+
+                    # print(self.positions) -> X, Y, Z are separate for each camera and separate for each object, because of global_id
+
+                    lat, lon = self.gps_convertor.convert(X, Z)
+                    self.geo_positions[global_id] = (lat, lon)
+
+                    # ----------------------------------------------------------------------------------------------------------------------   
+                    # THREAT ESTIMATION
+                    # ---------------------------------------------------------------------------------------------------------------------- 
+
+
+                    action = self.tactics.get(object_id, "Analyzing...")
+                    action_proba = self.tactics_proba.get(object_id, None)
+
+                    curr_pos = (X, Z)
+                    prev_pos = self.prev_positions.get(object_id)
+                    future_pos = self.predict_position(object_id)
+
+                    intent = self.intent_predictor.calculate(object_id)
+
+                    score = self.threat.score(class_id, D, action, action_proba, conf, curr_pos, prev_pos, future_pos, intent)
+
+                    self.threat_scores[object_id] = score
+
+                    # ---------------------------------------------------------------------------------------------------------------------- 
+
+                    v_x, v_z, speed = self.velocity_counter.calculate(object_id, X, Z)
+
+                    self.history[object_id].append({
+                        "v_type": v_type,
+                        "pos": (X, Y, Z),
+                        "geo": (lat, lon),
+                        "velocity": (v_x, v_z, speed),
+                        "distance": D,
+                        "action": action,
+                        "threat": score,
+                        "time": time.time(),
+                        "intent": intent,
+                        "camera_id": camera.camera_id
+                    })
+
+                    crop = frame[y1:y2, x1:x2]
+                    if crop.size == 0:
+                        continue
+
+                    crop = cv2.resize(crop, (128, 128))
+                    self.frames[object_id].append(crop)
+
+                    if len(self.frames[object_id]) == self.frames_length:
+                        frames = list(self.frames[object_id])
+                        threading.Thread(target=self.maneuver_predictor.prediction, args=(frames, object_id)).start()
+                        self.frames[object_id].clear()
+
+                    global_results_array.append((bboxes, object_id, class_id, conf))
+
+
+                camera_frames[camera.camera_id] = frame
+                camera_results[camera.camera_id] = global_results_array
+                camera_sizes[camera.camera_id] = (h, w)
+
+            if not any_frame:
+                break
+
+            current_ids = set().union(*current_ids_per_camera.values())
+
             for idx_ in list(self.history.keys()):
                 if idx_ not in current_ids:
                     del self.history[idx_]
@@ -622,7 +686,6 @@ class Tracker:
                     self.positions.pop(idx_, None)
                     self.velocities.pop(idx_, None)
                     self.distances.pop(idx_, None)
-
                     self.frames.pop(idx_, None)
                     self.vehicles.pop(idx_, None)
                     self.coordinates.pop(idx_, None)
@@ -630,116 +693,103 @@ class Tracker:
                     self.tactics_proba.pop(idx_, None)
                     self.geo_positions.pop(idx_, None)
 
-
-            
             tank, ifv, apc = self.counter.count_vehicles(self.vehicles)
             amount = (tank, ifv, apc)
 
             array = self.items_encoder.encode(tank, ifv, apc)
-        
-            # command = self.predict_command(array)
 
             command = self.command_predictor.predict_command(array, self.vehicles)
             if command:
                 self.weapon_counter.fire(command=command)
-                # print(self.weapons)
 
-            self.update_dict(resutls_array)
 
             amount_of_actions, actions = self.counter.count_statuses(self.tactics)
-
             tactic_prediction = self.tactic_predictor.predict_tactic(actions, self.tactics)
-
-            # priority = self.choose_target()
-            # priority_queue = self.priority_list(priority)
-            # print(priority_queue)
 
             priority = self.priority_calculator.choose_target()
 
-            if priority:
-                # cx, cy = self.centers[priority]
-                # yaw_target, pitch_target = self.angle.calculate(cx, cy, w, h)
-
+            if priority and priority in self.positions:
                 X, Y, Z = self.positions[priority]
                 Y = 0.0
 
-
                 turret_x, turret_y, turret_z = self.turret_position
-
-                # dx = X - turret_x
-                # dy = Y - turret_y
-                # dz = Z - turret_z
-
-                # yaw = math.degrees(math.atan2(dx, dz))
-                # pitch = math.degrees(math.atan2(dy, math.sqrt(dx * dx + dz * dz)))
-
-                # yaw_target = self.yaw_home - yaw
-                # pitch_target = self.pitch_home - pitch
 
                 yaw_target, pitch_target = self.angle.calculate_absolute(turret_x, turret_y, turret_z, X, Y, Z)
 
                 print(f"[BCS] send -> target={priority}, yaw={yaw_target:.2f}, pitch={pitch_target:.2f}")
                 # self.send_angles(yaw_target, pitch_target)
-                
-                
-            
+
             priority_queue = self.priority_calculator.priority_list(priority)
-            # print(priority_queue)
-            
 
-            # self.add_to_db()
-
-            map_img = self.map.draw_screen()
+            map_img = self.map.draw_screen(self.cameras)
             map_img_ = self.map.draw_objects(map_img, self.vehicles, self.positions, self.threat_scores, priority)
 
             self.counter.count_flanks(self.positions, self.scale, self.map_size, self.flank_threshold, self.flank_position)
 
-            # if len(self.threat_scores) > 0:
-            #     print(max(self.threat_scores, key=self.threat_scores.get))
+            for camera_id, frame in camera_frames.items():
+                resutls_array = camera_results[camera_id]
+                h, w = camera_sizes[camera_id]
 
-            frame = self.draw(frame, resutls_array, priority)
-            self.draw_total_coordinates(frame, resutls_array, h, w)
+                frame = self.draw(frame, resutls_array, priority)
+                self.draw_total_coordinates(frame, resutls_array, h, w)
+
+                cv2.imshow(f"YOLO Tracker | {camera_id}", frame)
+
+                self.last_frame = frame
 
             info_window = self.info_window(amount, amount_of_actions, tactic_prediction, command, priority, priority_queue)
 
             data = self.return_data(amount, actions, tactic_prediction, command, priority, priority_queue)
             unique_data = self.return_unique_data()
 
-            # print(data)
-
-            self.last_frame = frame
             self.map_frame = map_img_
             self.logs = data
             self.unique_logs = unique_data
 
-            # map_img = self.map_window()
-            # map_img = self.draw_flanks(map_img)
-            
-            cv2.imshow('YOLO Tracker', frame)
             cv2.imshow("Top-Down Map", map_img_)
-            # cv2.imshow('YOLO Tracker', frame)
-            cv2.imshow('info_window', info_window)
-
+            cv2.imshow("info_window", info_window)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-            # return frame (bytecode: jpeg) + logs
-        cap.release()
+        for cap in caps.values():
+            cap.release()
+
         cv2.destroyAllWindows()
 
 
 
 
 weapons = {'atgm': 30, 'cluster_shells': 30, 'unitary_shells': 30, 'fpv_drones': 30}
-path = "./video/test_video_1.mp4"
+# path = "./video/test_video_1.mp4"
 # path = './video/test_video_1.mp4'
+
+cameras = [
+    CameraConfig(
+        camera_id="cam_1",
+        path="./video/test_video_1.mp4",
+        global_X=0,
+        global_Z=0,
+        yaw_deg=-5,
+        fov_horizontal=73.7,
+        fov_vertical=46.5,
+    ),
+    CameraConfig(
+        camera_id="cam_2",
+        path="./video/test_video_1.mp4",
+        global_X=1,
+        global_Z=1,
+        yaw_deg=-5,
+        fov_horizontal=73.7,
+        fov_vertical=46.5,
+    ),
+]
+
+
+
 map_size = 600
 scale = 1
 max_dist = 1000
-
-fov_horizontal = 90
-fov_vertical = 58
 
 
 # coordinates 
@@ -755,15 +805,15 @@ heading = 20
 turret_position = (0.0, 0.0, 0.0)
 
 # camera fov
-hfov = 73.7
-vfov = 46.5
+# hfov = 73.7
+# vfov = 46.5
 
 
 raspberry_ip = "192.168.1.141"
 raspberry_port = 5000
 
-tracker = Tracker(path, weapons, map_size, scale, max_dist, fov_horizontal, fov_vertical, 
-                  lat, lon, heading, turret_position, hfov, vfov, raspberry_ip, raspberry_port)
+tracker = Tracker(cameras, weapons, map_size, scale, max_dist, 
+                  lat, lon, heading, turret_position, raspberry_ip, raspberry_port)
 tracker()
 
 # python3 tracker.py
