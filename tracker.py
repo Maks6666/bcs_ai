@@ -12,6 +12,8 @@ from src.optical_flow import OpticalFlow
 from src.focal_length import FocalLength
 from src.threat_estimation import ThreatEstimator
 from src.group_tracking import GroupTracker
+from src.pixel2world import PixelToWorld
+from src.map_window import MapWindow
 
 from infantry_tactics_model.infantry_model import model
 
@@ -19,7 +21,7 @@ from infantry_tactics_model.infantry_model import model
 
 
 class Tracker:
-    def __init__(self, path, device, yolo_link):
+    def __init__(self, path, device, yolo_link, h_fov, v_fov, size, scale):
         self.device = device
         self.path = path 
         self.yolo_link = yolo_link
@@ -57,8 +59,15 @@ class Tracker:
         self.threat_estimator = ThreatEstimator(self.action_threats)
         self.group_threat = {}
 
+        self.distances = {}
 
-
+        self.h_fov = h_fov
+        self.v_fov = v_fov
+        self.pixel_to_world = PixelToWorld(self.h_fov, self.v_fov)
+        
+        self.size = size
+        self.scale = scale
+        self.map_window = MapWindow(self.size, self.scale)
 
     def load_model(self):
         model = YOLO(self.yolo_link)
@@ -158,12 +167,12 @@ class Tracker:
         self.group_actions[g_id] = action
         self.action_proba[g_id] = proba
     
-    def estimate_distance(self, groups):
+    def estimate_distance(self, groups, frame_width):
         distcances = {}
         for g_id, bboxes in groups.items():
             distcances[g_id] = []
             for bbox in bboxes:
-                dist = self.focal_length.estimate(bbox)
+                dist = self.focal_length.estimate(bbox, frame_width)
                 distcances[g_id].append(dist)
 
         for g_id, d in distcances.items():
@@ -254,8 +263,6 @@ class Tracker:
             action = self.group_actions.get(g_id, "analyzing")
             action_proba = self.action_proba.get(g_id, 0)
             
-            
-
             text = f'{dist} m. | {action} ({action_proba:.2f})| {threat} | {size}'
 
             cv2.putText(frame, text, (x1_group + 50 ,y1_group), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,0,0),2)
@@ -274,8 +281,10 @@ class Tracker:
                 x2_list.append(x2)
                 y2_list.append(y2)
 
+                dist = self.distances.get(idx)
+
                 name = self.names[int(class_id)]
-                text = f"{idx}:{name}"
+                text = f"{idx}:{name}:{dist}m" if dist is not None else f"{idx}:{name}"
 
                 cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 1)
                 cv2.putText(frame, text, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
@@ -307,14 +316,22 @@ class Tracker:
             if not ret: 
                 break
 
+            if frame is not None:
+                h, w, _ = frame.shape
+
             results = self.results(frame)
             res_array = self.get_results(results, frame)
 
             for bbox, idx, class_id in res_array:
 
                 x1, y1, x2, y2 = map(int, bbox)
-                D = self.focal_length.estimate(bbox)
-                cv2.putText(frame, f'{D} m', (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,0), 1)
+                D = self.focal_length.estimate(bbox, w)
+
+                self.distances[idx] = D
+
+                X, Y, Z = PixelToWorld(90, 60).calculate(bbox, w, h, D)
+
+                # cv2.putText(frame, f'{D} m', (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,0), 1)
 
             groups = self.build_groups(res_array)
 
@@ -331,7 +348,7 @@ class Tracker:
 
 
 
-            self.estimate_distance(groups)
+            self.estimate_distance(groups, w)
 
             self.estimate_threat(groups)
 
@@ -340,9 +357,10 @@ class Tracker:
             self.draw_groups(groups, frame)
             upd_frmae = self.draw(res_array, frame)
 
-            
+            map_img = self.map_window.draw_screen()
 
             cv2.imshow('YOLO Tracker', upd_frmae)
+            cv2.imshow('Map', map_img)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -356,7 +374,13 @@ class Tracker:
 path = 'videos/1.mp4'
 device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 yolo_link = "yolo12l.pt"
-tracker = Tracker(path, device, yolo_link)
+
+
+h_fov = 90
+v_fov = 60
+size = 600
+scale = 1
+tracker = Tracker(path, device, yolo_link, h_fov, v_fov, size, scale)
 tracker()
 
 
