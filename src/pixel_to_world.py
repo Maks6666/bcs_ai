@@ -13,6 +13,23 @@ class Pixel2World:
         hfov = math.radians(self.fov_horizontal)
         vfov = math.radians(self.fov_vertical)
 
+
+    #     frame_w pixels
+    # |←——————————————————→|
+    
+    # \         |         /
+    #  \        |        /
+    #   \    fx |       /
+    #    \      |      /
+    #     \  hfov/2   /
+    #      \    |    /
+    #       \   |   /
+    #        \  |  /
+    #         \ | /
+    #          \|/
+    #        camera
+
+
         fx = frame_w / (2 * math.tan(hfov / 2))
         fy = frame_h / (2 * math.tan(vfov / 2))
 

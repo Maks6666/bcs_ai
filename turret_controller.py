@@ -5,6 +5,8 @@ import board
 import busio
 from adafruit_pca9685 import PCA9685
 
+# source ~/servo-env/bin/activate
+
 HOST = "0.0.0.0"
 PORT = 5000
 
