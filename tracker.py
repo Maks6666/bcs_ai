@@ -9,7 +9,7 @@ import threading
 from collections import defaultdict, deque
 
 from src.optical_flow import OpticalFlow
-from src.focal_length import FocalLength
+from src.distance import Distance
 from src.threat_estimation import ThreatEstimator
 from src.group_tracking import GroupTracker
 from src.pixel2world import PixelToWorld
@@ -21,7 +21,7 @@ from infantry_tactics_model.infantry_model import model
 
 
 class Tracker:
-    def __init__(self, path, device, yolo_link, h_fov, v_fov, size, scale):
+    def __init__(self, path, device, yolo_link, h_fov, v_fov, size, scale, cam_height, cam_pitch):
         self.device = device
         self.path = path 
         self.yolo_link = yolo_link
@@ -45,7 +45,8 @@ class Tracker:
         self.frames_needed = 16
         self.tactics = ['advance', 'disperse', 'halt', 'regroup', 'retreat']
 
-        self.focal_length = FocalLength()
+
+        self.distance = Distance(v_fov, cam_height, cam_pitch)
         self.group_dist = {}
 
         self.action_threats = {
@@ -63,7 +64,13 @@ class Tracker:
 
         self.h_fov = h_fov
         self.v_fov = v_fov
+
+        # self.camera_height = 10
+        # self.camera_pitch_deg = 20
+
+
         self.pixel_to_world = PixelToWorld(self.h_fov, self.v_fov)
+        self.positions = {}
         
         self.size = size
         self.scale = scale
@@ -167,12 +174,12 @@ class Tracker:
         self.group_actions[g_id] = action
         self.action_proba[g_id] = proba
     
-    def estimate_distance(self, groups, frame_width):
+    def estimate_distance(self, groups, frame_height):
         distcances = {}
         for g_id, bboxes in groups.items():
             distcances[g_id] = []
             for bbox in bboxes:
-                dist = self.focal_length.estimate(bbox, frame_width)
+                dist = self.distance.estimate(bbox, frame_height)
                 distcances[g_id].append(dist)
 
         for g_id, d in distcances.items():
@@ -322,14 +329,19 @@ class Tracker:
             results = self.results(frame)
             res_array = self.get_results(results, frame)
 
+            self.positions = {}
+
             for bbox, idx, class_id in res_array:
 
                 x1, y1, x2, y2 = map(int, bbox)
-                D = self.focal_length.estimate(bbox, w)
+                D = self.distance.estimate(bbox, h)
 
                 self.distances[idx] = D
 
-                X, Y, Z = PixelToWorld(90, 60).calculate(bbox, w, h, D)
+                X, Y, Z = self.pixel_to_world.calculate(bbox, w, h, D)
+                # X, Y, Z = self.pixel_to_world.calculate(bbox, w, h)
+
+                self.positions[idx] = (X, Y, Z)
 
                 # cv2.putText(frame, f'{D} m', (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,0), 1)
 
@@ -348,7 +360,7 @@ class Tracker:
 
 
 
-            self.estimate_distance(groups, w)
+            self.estimate_distance(groups, h)
 
             self.estimate_threat(groups)
 
@@ -358,6 +370,7 @@ class Tracker:
             upd_frmae = self.draw(res_array, frame)
 
             map_img = self.map_window.draw_screen()
+            map_img = self.map_window.draw_objects(self.positions, map_img)
 
             cv2.imshow('YOLO Tracker', upd_frmae)
             cv2.imshow('Map', map_img)
@@ -379,8 +392,11 @@ yolo_link = "yolo12l.pt"
 h_fov = 90
 v_fov = 60
 size = 600
-scale = 1
-tracker = Tracker(path, device, yolo_link, h_fov, v_fov, size, scale)
+scale = 3
+cam_height = 10  # высота камеры над землёй, метры
+cam_pitch = 30    # угол наклона камеры вниз от горизонта, градусы
+
+tracker = Tracker(path, device, yolo_link, h_fov, v_fov, size, scale, cam_height, cam_pitch)
 tracker()
 
 
