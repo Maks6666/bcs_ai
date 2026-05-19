@@ -102,7 +102,7 @@ class Tracker:
         self.max_dist = max_dist 
 
         self.threat = ThreatEstimator(self.yolo_names, self.max_dist)
-        self.distance = DistanceEstimator(self.yolo_names, self.vehicle_real_width)
+        # self.distance = DistanceEstimator(self.yolo_names, self.vehicle_real_width)
         # self.vehicles_counter = VehiclesCounter()
         self.counter = Counter()
         self.items_encoder = ItemsEncoder(self.weapons)
@@ -566,7 +566,8 @@ class Tracker:
                     upd_bboxes = self.resize_frame(bboxes, h, w)
                     x1, y1, x2, y2 = map(int, upd_bboxes)
                    
-                    D = self.distance.estimate(bboxes, idx, class_id, w)
+                    # D = self.distance.estimate(bboxes, idx, class_id, w)
+                    D = camera.estimate_distance(bboxes, h)
 
                     x1_, y1_, x2_, y2_ = map(int, bboxes)
                     cx, cy = self.center.get_center(x1_, y1_, x2_, y2_)
@@ -773,6 +774,8 @@ cameras = [
         yaw_deg=-5,
         fov_horizontal=73.7,
         fov_vertical=46.5,
+        cam_height=15,   
+        cam_pitch=10,
     ),
     CameraConfig(
         camera_id="cam_2",
@@ -782,6 +785,8 @@ cameras = [
         yaw_deg=-5,
         fov_horizontal=73.7,
         fov_vertical=46.5,
+        cam_height=15,   
+        cam_pitch=10,
     ),
 ]
 
