@@ -7,3 +7,4 @@ SQLAlchemy==2.0.23
 scikit-learn>=1.6.0
 psycopg2-binary==2.9.9
 filterpy==1.4.5
+websocket-client>=1.6.0

@@ -15,7 +15,7 @@ from decision_model.tactic_model import tactic_model
 from weapon_model.weapon_model import weapon_model
 
 import time
-from db import Table, session
+# from db import Table, session
 import warnings
 
 
@@ -35,21 +35,22 @@ from src.priority import Priority
 from src.gps import Local2GPS
 from src.angle_calculator import AngleCalculator
 from src.centers import Centers
-from src.camera import CameraConfig
+from src.camera import CameraConfig, DynamicCameraConfig
+from src.threat_field import ThreatField  
+from src.threaded_stream_capture import ThreadedStreamCapture
+
+from src.uwb_receiver import NoccelaPositionManager
+from src.imu_reader import IMUReader
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-
-class SubTracker:
-    ...
-    # yolox - > if 'yes' - start Tracker
 
 class Tracker:
     def __init__(self, cameras, weapons, map_size, scale, max_dist,
                  lat, lon, heading, turret_position, raspberry_ip, raspberry_port):
 
         self.device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+        
         # self.tracker = DeepSort(max_age=5, max_iou_distance=0.4)
         self.cameras = cameras
         self.trackers = {camera.camera_id: DeepSort(max_age=5, max_iou_distance=0.4) for camera in cameras}
@@ -98,6 +99,7 @@ class Tracker:
         self.prev_positions = {}
         self.centers = {}
         self.positions = {}
+        self.trails = defaultdict(lambda: deque(maxlen=60))
 
         self.max_dist = max_dist 
 
@@ -117,7 +119,7 @@ class Tracker:
         self.map_size = map_size
         self.scale = scale
         self.flank_threshold = 50
-        self.map = MapWindow(self.map_size, self.scale, self.flank_threshold)
+        self.map = MapWindow(self.map_size, self.scale, self.flank_threshold, self.cameras)
 
         self.flank_position = {'left_flank': [], 'center': [], 'right_flank': []}
 
@@ -142,6 +144,8 @@ class Tracker:
         self.gps_convertor = Local2GPS(self.lat, self.lon, self.heading)
         self.geo_positions = {}
 
+        self.threat_field = ThreatField(self.map_size, self.scale, center=self.map_size // 2)
+
          # turret part 
 
         self.yaw_home = 90
@@ -153,6 +157,8 @@ class Tracker:
 
         self.raspberry_ip = raspberry_ip
         self.raspberry_port = raspberry_port
+
+        self.motion_threshold = 0.01
 
         # self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # self.sock.connect((self.raspberry_ip, self.raspberry_port))
@@ -440,7 +446,7 @@ class Tracker:
 
         return window
 
-    def find_fusion_id(self, X, Z, class_id, threshold=5):
+    def find_fusion_id(self, X, Z, class_id, threshold=15):
         for existing_id, (ex_X, _, ex_Z) in self.positions.items():
             existing_type = self.vehicles.get(existing_id)
 
@@ -518,15 +524,27 @@ class Tracker:
         return data_dict
 
     def __call__(self):
-        caps = {
-            camera.camera_id: cv2.VideoCapture(camera.path)
-            for camera in self.cameras
-        }
+        # caps = {
+        #     camera.camera_id: cv2.VideoCapture(camera.path)
+        #     for camera in self.cameras
+        # }
 
-        
+        caps = {}
+        for camera in self.cameras:
+            if isinstance(camera.path, str) and camera.path.startswith("http"):
+                caps[camera.camera_id] = ThreadedStreamCapture(camera.path)
+            else:
+                caps[camera.camera_id] = cv2.VideoCapture(camera.path)
 
         for cap in caps.values():
             assert cap.isOpened()
+
+        subtractors = {
+            camera.camera_id: cv2.createBackgroundSubtractorMOG2(
+                history=200, varThreshold=40, detectShadows=False
+            )
+            for camera in self.cameras
+        }
 
         while True:
             self.positions = {}
@@ -550,9 +568,15 @@ class Tracker:
                     continue
 
                 any_frame = True
+                h, w, _ = frame.shape
 
-                if frame is not None:
-                    h, w, _ = frame.shape
+                # == MOTION DETECTION ==
+
+                mask = subtractors[camera.camera_id].apply(frame)
+                if np.count_nonzero(mask) / mask.size < self.motion_threshold:
+                    continue
+
+                # --------------------------------------
 
                 results = self.results(frame)
                 resutls_array = self.get_result(results, frame, camera.camera_id)
@@ -609,6 +633,7 @@ class Tracker:
                     # -----------------------------------------------------------------------------------------------------------
 
                     self.positions[object_id] = (X, Y, Z)
+                    self.trails[object_id].append((X, Z))
                     self.vehicles[object_id] = self.yolo_names[int(class_id)]
                     self.coordinates[object_id] = (x1, y1, x2, y2)
                     self.distances[object_id] = D
@@ -693,6 +718,7 @@ class Tracker:
                     self.tactics.pop(idx_, None)
                     self.tactics_proba.pop(idx_, None)
                     self.geo_positions.pop(idx_, None)
+                    self.trails.pop(idx_, None)
 
             tank, ifv, apc = self.counter.count_vehicles(self.vehicles)
             amount = (tank, ifv, apc)
@@ -722,7 +748,15 @@ class Tracker:
 
             priority_queue = self.priority_calculator.priority_list(priority)
 
+            # === MAP DRAWING ===
+
             map_img = self.map.draw_screen()
+            map_img = self.map.draw_paths(map_img, self.trails)
+
+            self.threat_field.update(self.positions, self.threat_scores)
+            map_img = self.threat_field.draw(map_img)
+
+
             map_img_ = self.map.draw_objects(map_img, self.vehicles, self.positions, self.threat_scores, priority)
 
             self.counter.count_flanks(self.positions, self.scale, self.map_size, self.flank_threshold, self.flank_position)
@@ -765,10 +799,25 @@ weapons = {'atgm': 30, 'cluster_shells': 30, 'unitary_shells': 30, 'fpv_drones':
 # path = "./video/test_video_1.mp4"
 # path = './video/test_video_1.mp4'
 
+
+# using MPU to calculate yaw_deg and cam_pitch
+
+CAMERA_1_IP = "172.20.10.4"  
+STREAM_URL_1 = f"http://{CAMERA_1_IP}:81/stream"
+
+CAMERA_2_IP = "192.168.1.142"  
+STREAM_URL_2 = f"http://{CAMERA_2_IP}:81/stream"
+
+
+
+# (!!!!!) Change camera IDs to 2435000088 and 2435000119
+
 cameras = [
     CameraConfig(
-        camera_id="cam_1",
-        path="./video/test_video_1.mp4",
+        # camera_id="cam_1",
+        camera_id = "2435000088",
+        # path="./video/test_video_1.mp4", 
+        path = STREAM_URL_1,
         global_X=0,
         global_Z=0,
         yaw_deg=-5,
@@ -777,23 +826,75 @@ cameras = [
         cam_height=15,   
         cam_pitch=10,
     ),
-    CameraConfig(
-        camera_id="cam_2",
-        path="./video/test_video_1.mp4",
-        global_X=1,
-        global_Z=1,
-        yaw_deg=-5,
-        fov_horizontal=73.7,
-        fov_vertical=46.5,
-        cam_height=15,   
-        cam_pitch=10,
-    ),
+    # CameraConfig(
+    #     # camera_id="cam_2",
+    #     camera_id = "2435000119",
+    #     # path = STREAM_URL_2,
+    #     path="./video/test_video_1.mp4", 
+    #     global_X=5,
+    #     global_Z=5,
+    #     yaw_deg=0,
+    #     fov_horizontal=73.7,
+    #     fov_vertical=46.5,
+    #     cam_height=15,   
+    #     cam_pitch=10,
+    # ),
 ]
 
 
 
+# cameras = [
+#     DynamicCameraConfig(
+#         camera_id="T0",        # ← совпадает с tag_id в UWB теге
+#         path="http://192.168.1.104:81/stream",  # ← стрим с ESP32-CAM
+#         fov_horizontal=73.7,
+#         fov_vertical=46.5,
+#     ),
+#     DynamicCameraConfig(
+#         camera_id="T1",
+#         path="http://192.168.1.105:81/stream",
+#         fov_horizontal=73.7,
+#         fov_vertical=46.5,
+#     ),
+# ]
+
+
+# ANCHORS = {
+#     "A0": {"host": "192.168.1.101", "port": 8080,
+#            "X": 0.0,  "Y": 0.0, "Z": 0.0},
+#     "A1": {"host": "192.168.1.102", "port": 8080,
+#            "X": 40.0, "Y": 0.5, "Z": 0.0},
+#     "A2": {"host": "192.168.1.103", "port": 8080,
+#            "X": 20.0, "Y": 1.5, "Z": 35.0},
+# }
+
+# uwb = UWBPositionManager(anchors=ANCHORS, cameras=cameras)
+# uwb.start()
+
+
+
+
+
+imu_readers = [
+    IMUReader(camera=cameras[0], host="172.20.10.4", pitch_offset=-4.11, yaw_offset=0, gyro_z_sign=-1),
+    # IMUReader(camera=cameras[1], host="192.168.1.142", pitch_offset=-4.11, yaw_offset=0, gyro_z_sign=-1),  
+]
+for imu in imu_readers:
+    imu.start()
+
+
+manager = NoccelaPositionManager(
+    url = "ws://172.20.10.3:3000/realtime",
+    # url="ws://localhost:3000/realtime",
+    cameras=cameras
+)
+manager.start()
+
+
+
+
 map_size = 600
-scale = 1
+scale = 1.0
 max_dist = 1000
 
 
@@ -817,7 +918,7 @@ turret_position = (0.0, 0.0, 0.0)
 raspberry_ip = "192.168.1.141"
 raspberry_port = 5000
 
-tracker = Tracker(cameras, weapons, map_size, scale, max_dist, 
+tracker = Tracker(cameras, weapons, map_size, scale, max_dist,
                   lat, lon, heading, turret_position, raspberry_ip, raspberry_port)
 tracker()
 

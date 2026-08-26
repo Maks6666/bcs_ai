@@ -7,3 +7,5 @@
 ./models/training_old.ipynb
 teacher_model.pt
 servo_test.py
+esp_test.py
+yolo12n.pt

@@ -1,23 +1,25 @@
 import cv2
-import numpy as np 
+import numpy as np
+import math
 
 class MapWindow:
-    def __init__(self, map_size: int, scale: int, flank_threshold: int):
+    def __init__(self, map_size: int, scale: int, flank_threshold: int, cameras=None):
         self.map_size = map_size
         self.center = map_size // 2
         self.scale = scale
         self.flank_threshold = flank_threshold
+        self.cameras = cameras or []
 
     
 
     def draw_screen(self):
         map_img = np.zeros((self.map_size, self.map_size, 3), dtype=np.uint8)
-        scale = 1
+        # scale = 1
 
         threshold = self.flank_threshold
 
-        left_border = self.center - threshold * scale
-        right_border = self.center + threshold * scale
+        left_border = int(self.center - threshold * self.scale)
+        right_border = int(self.center + threshold * self.scale)
 
         cv2.rectangle(map_img, (0, 0), (left_border, self.center), (50, 50, 100), -1)
         cv2.rectangle(map_img, (left_border, 0), (right_border, self.center), (50, 100, 50), -1)
@@ -33,12 +35,48 @@ class MapWindow:
         cv2.line(map_img, (0, self.center), (self.map_size, self.center), (80, 80, 80), 2)
         cv2.line(map_img, (self.center, 0), (self.center, self.map_size), (80, 80, 80), 2)
 
-        cv2.circle(map_img, (self.center, self.center), 6, (255, 255, 255), -1)
-        cv2.putText(map_img, "CAMERA", (self.center + 5, self.center - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+        for cam in self.cameras:
+            cx = int(self.center + cam.global_X * self.scale)
+            cy = int(self.center - cam.global_Z * self.scale)
+
+
+            cv2.circle(map_img, (cx, cy), 6, (255, 255, 255), -1)
+            cv2.putText(map_img, cam.camera_id, (cx + 8, cy - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
+            yaw_rad = math.radians(cam.yaw_deg)
+            arrow_len = 40
+            ex = int(cx + arrow_len * math.sin(yaw_rad))
+            ey = int(cy - arrow_len * math.cos(yaw_rad))
+            cv2.arrowedLine(map_img, (cx, cy), (ex, ey), (0, 220, 255), 2, tipLength=0.3)
 
         return map_img
 
     
+    def draw_paths(self, map_img, trails):
+        for _, positions in trails.items():
+            if len(positions) < 2:
+                continue
+
+            points = []
+            for (X, Z) in positions:
+                px = int(self.center + X * self.scale)
+                py = int(self.center - Z * self.scale)
+                points.append((px, py))
+
+            n = len(points)
+            for i in range(1, n):
+                alpha = i / n
+                intensity = int(80 + 175 * alpha)
+                colour = (255, intensity, intensity)
+                cv2.line(map_img, points[i - 1], points[i], colour, 2)
+
+            for i, pt in enumerate(points[:-1]):
+                alpha = i / n
+                intensity = int(60 + 100 * alpha)
+                cv2.circle(map_img, pt, 2, (255, intensity, intensity), -1)
+
+        return map_img
+
     def draw_objects(self, map_img, vehicles, positions, threat_scores, priority):
         for idx, (X, _, Z) in positions.items():
             # scale = 1
